@@ -15,7 +15,6 @@
       "run_at": "document_start"
     }
   ],
-  "options_page": "settings.html",
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

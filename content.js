@@ -431,6 +431,111 @@
     .history-item:hover .history-item-del { opacity: 1; }
     .history-item-del:hover { background: var(--md-surface-container); color: var(--md-error); }
     .history-item-del svg { width: 18px; height: 18px; fill: currentColor; }
+
+    /* ---- 设置面板 ---- */
+    .settings-panel {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--md-surface); z-index: 10;
+      display: flex; flex-direction: column;
+    }
+    .settings-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px;
+      background: var(--md-surface-container);
+      border-bottom: 1px solid var(--md-outline-variant);
+    }
+    .settings-title { flex: 1; font-size: 16px; font-weight: 600; color: var(--md-on-surface); }
+    .settings-body {
+      flex: 1; overflow-y: auto; overflow-x: hidden; padding: 16px;
+    }
+    .settings-body::-webkit-scrollbar { width: 4px; }
+    .settings-body::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 2px; }
+    .settings-section { margin-bottom: 20px; }
+    .settings-section h3 {
+      font-size: 14px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 4px;
+    }
+    .settings-hint {
+      font-size: 12px; color: var(--md-on-surface-variant); margin-bottom: 10px; line-height: 1.5;
+    }
+    .settings-body input, .settings-body textarea, .settings-body select {
+      width: 100%; max-width: 100%; box-sizing: border-box;
+      padding: 12px 14px;
+      border: 1px solid var(--md-outline); border-radius: 12px;
+      background: var(--md-surface-container-high);
+      color: var(--md-on-surface);
+      font-size: 14px; font-family: inherit;
+      transition: border-color .2s, box-shadow .2s;
+      outline: none;
+    }
+    .settings-body input:focus, .settings-body textarea:focus, .settings-body select:focus {
+      border-color: var(--md-primary);
+      box-shadow: 0 0 0 2px var(--md-primary-container);
+    }
+    .settings-body input::placeholder, .settings-body textarea::placeholder {
+      color: var(--md-on-surface-variant); opacity: .7;
+    }
+    .settings-body textarea { resize: vertical; min-height: 60px; line-height: 1.5; }
+    .settings-body select {
+      cursor: pointer; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cpath fill='%2379747E' d='M7 10l5 5 5-5z'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 12px center;
+      padding-right: 40px;
+    }
+    .settings-body label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; color: var(--md-on-surface-variant); }
+    .presets { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .preset-chip {
+      padding: 6px 14px; border-radius: 20px; border: 1px solid var(--md-outline-variant);
+      background: var(--md-surface-container); color: var(--md-on-surface-variant);
+      font-size: 12px; cursor: pointer; font-family: inherit;
+      transition: all .2s; white-space: nowrap;
+    }
+    .preset-chip:hover { background: var(--md-surface-container-high); border-color: var(--md-outline); }
+    .preset-chip.active {
+      background: var(--md-primary-container); color: var(--md-on-primary-container);
+      border-color: var(--md-primary);
+    }
+    .password-wrap { position: relative; }
+    .password-wrap input { padding-right: 44px; }
+    .toggle-vis {
+      position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+      width: 32px; height: 32px; border: none; border-radius: 16px;
+      background: transparent; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--md-on-surface-variant); transition: background .2s;
+    }
+    .toggle-vis:hover { background: var(--md-surface-container-highest, #E6E0E9); }
+    .toggle-vis svg { width: 18px; height: 18px; fill: currentColor; }
+    .settings-actions { display: flex; gap: 10px; margin-top: 20px; }
+    .settings-btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 10px 22px; border-radius: 100px;
+      font-size: 13px; font-weight: 500; font-family: inherit;
+      cursor: pointer; transition: all .2s; border: none;
+    }
+    .settings-btn svg { width: 16px; height: 16px; fill: currentColor; }
+    .settings-btn.primary {
+      background: var(--md-primary); color: var(--md-on-primary);
+      box-shadow: 0 1px 3px rgba(0,0,0,.15);
+    }
+    .settings-btn.primary:hover { filter: brightness(1.08); box-shadow: 0 2px 6px rgba(0,0,0,.2); }
+    .settings-btn.primary:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+    .settings-btn.outline {
+      background: transparent; color: var(--md-primary);
+      border: 1px solid var(--md-outline);
+    }
+    .settings-btn.outline:hover { background: var(--md-primary-container); }
+    .settings-status {
+      margin-top: 12px; padding: 10px 14px; border-radius: 10px;
+      font-size: 13px; line-height: 1.5;
+      display: none;
+    }
+    .settings-status.show { display: block; }
+    .settings-status.success { background: #E8F5E9; color: #2E7D32; border-left: 3px solid #4CAF50; }
+    .settings-status.error { background: #FDECEA; color: var(--md-error); border-left: 3px solid var(--md-error); }
+    :host([data-theme="dark"]) .settings-status.success { background: rgba(76,175,99,.12); color: #81C784; }
+    :host([data-theme="dark"]) .settings-status.error { background: rgba(242,184,182,.12); }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
   ` + katexCss;
 
   // ======================== 状态 ========================
@@ -545,6 +650,58 @@
         </div>
       </div>
     </div>
+    <div class="settings-panel" id="settings-panel" style="display:none">
+      <div class="settings-head">
+        <button class="icon-btn" id="btn-settings-back" title="返回">${ICON_CLOSE}</button>
+        <span class="settings-title">设置</span>
+      </div>
+      <div class="settings-body">
+        <div class="settings-section">
+          <h3>Base URL</h3>
+          <p class="settings-hint">只需填写 API 基础地址，系统会自动补全 /chat/completions 路径</p>
+          <div class="presets" id="presets"></div>
+          <input type="text" id="settings-base-url" placeholder="https://api.openai.com/v1" spellcheck="false">
+        </div>
+        <div class="settings-section">
+          <label for="settings-api-key">API Key</label>
+          <div class="password-wrap">
+            <input type="password" id="settings-api-key" placeholder="sk-..." spellcheck="false">
+            <button class="toggle-vis" id="settings-toggle-key" title="显示/隐藏">
+              <svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="settings-section">
+          <label for="settings-model">模型名称</label>
+          <input type="text" id="settings-model" placeholder="gpt-3.5-turbo" spellcheck="false" list="settings-model-list">
+          <datalist id="settings-model-list">
+          </datalist>
+        </div>
+        <div class="settings-section">
+          <label for="settings-system-prompt">系统提示词</label>
+          <textarea id="settings-system-prompt" rows="3" placeholder="你是一个有帮助的AI助手。"></textarea>
+        </div>
+        <div class="settings-section">
+          <label for="settings-theme">主题</label>
+          <select id="settings-theme">
+            <option value="system">跟随系统</option>
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </div>
+        <div class="settings-actions">
+          <button class="settings-btn primary" id="btn-settings-save">
+            <svg viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>
+            保存
+          </button>
+          <button class="settings-btn outline" id="btn-settings-test">
+            <svg viewBox="0 0 24 24"><path d="M13 3v2h-2V3H9v2H7v2h2v2H7v2h2v2H7v2h2v2h2v-2h2v2h2v-2h2v-2h-2v-2h2V9h2V7h-2V5h-2v2h-2V5h-2zm-2 8h2v2h-2v-2z"/></svg>
+            测试连接
+          </button>
+        </div>
+        <div class="settings-status" id="settings-status"></div>
+      </div>
+    </div>
     <div class="auto-row" id="auto-row" style="display:none">
       <button class="auto-btn" id="btn-auto" title="自动答题">
         <div class="auto-btn-fill" id="auto-btn-fill" style="width:0%"></div>
@@ -620,6 +777,7 @@
   $autoBtnText = shadow.getElementById('auto-btn-text');
   $historyPanel = shadow.getElementById('history-panel');
   $historyList = shadow.getElementById('history-list');
+  const $settingsPanel = shadow.getElementById('settings-panel');
 
   // ======================== 事件绑定 ========================
 
@@ -653,9 +811,7 @@
   // -- 侧边栏按钮 --
   shadow.getElementById('btn-close').addEventListener('click', () => toggleSidebar(false));
 
-  shadow.getElementById('btn-settings').addEventListener('click', () => {
-    chrome.runtime.sendMessage({ type: 'open-settings' });
-  });
+  shadow.getElementById('btn-settings').addEventListener('click', openSettingsPanel);
 
   // 历史记录
   shadow.getElementById('btn-history').addEventListener('click', openHistoryPanel);
@@ -895,6 +1051,8 @@
     showWelcome();
     $input.value = '';
     autoResize();
+    // 持久化空会话状态，刷新后不再恢复旧对话
+    await chrome.storage.local.set({ currentConvId: null });
     // 重新渲染历史列表
     renderHistoryList();
   }
@@ -950,6 +1108,181 @@
 
   function closeHistoryPanel() {
     if ($historyPanel) $historyPanel.style.display = 'none';
+  }
+
+  // ======================== 设置面板 ========================
+  const API_PRESETS = [
+    { name: 'OpenAI', url: 'https://api.openai.com/v1' },
+    { name: 'DeepSeek', url: 'https://api.deepseek.com/v1' },
+    { name: '通义千问', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+    { name: '智谱 GLM', url: 'https://open.bigmodel.cn/api/paas/v4' },
+    { name: 'Moonshot', url: 'https://api.moonshot.cn/v1' },
+    { name: '自定义', url: '' }
+  ];
+
+  const MODEL_SUGGESTIONS = [
+    'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo',
+    'deepseek-chat', 'deepseek-reasoner',
+    'qwen-turbo', 'qwen-plus', 'qwen-max',
+    'glm-4', 'glm-4-flash',
+    'moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k'
+  ];
+
+  const $settingsBaseUrl = shadow.getElementById('settings-base-url');
+  const $settingsApiKey = shadow.getElementById('settings-api-key');
+  const $settingsModel = shadow.getElementById('settings-model');
+  const $settingsSystemPrompt = shadow.getElementById('settings-system-prompt');
+  const $settingsTheme = shadow.getElementById('settings-theme');
+  const $settingsStatus = shadow.getElementById('settings-status');
+  const $presets = shadow.getElementById('presets');
+  const $modelList = shadow.getElementById('settings-model-list');
+  const $btnSettingsBack = shadow.getElementById('btn-settings-back');
+  const $btnSettingsSave = shadow.getElementById('btn-settings-save');
+  const $btnSettingsTest = shadow.getElementById('btn-settings-test');
+  const $toggleKey = shadow.getElementById('settings-toggle-key');
+
+  // 渲染预设
+  $presets.innerHTML = API_PRESETS.map(p => {
+    const cls = p.url ? 'preset-chip' : 'preset-chip custom';
+    return `<button class="${cls}" data-url="${p.url}">${p.name}</button>`;
+  }).join('');
+
+  $presets.addEventListener('click', (e) => {
+    const chip = e.target.closest('.preset-chip');
+    if (!chip) return;
+    const url = chip.dataset.url;
+    // 更新所有 chip 样式
+    $presets.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+    chip.classList.add('active');
+    if (url) {
+      $settingsBaseUrl.value = url;
+      $settingsBaseUrl.dispatchEvent(new Event('input'));
+    } else {
+      $settingsBaseUrl.value = '';
+      $settingsBaseUrl.focus();
+    }
+  });
+
+  // 渲染模型建议
+  $modelList.innerHTML = MODEL_SUGGESTIONS.map(m => `<option value="${m}">`).join('');
+
+  // 密码显示/隐藏
+  $toggleKey.addEventListener('click', () => {
+    $settingsApiKey.type = $settingsApiKey.type === 'password' ? 'text' : 'password';
+  });
+
+  // 返回按钮
+  $btnSettingsBack.addEventListener('click', closeSettingsPanel);
+
+  // 保存
+  $btnSettingsSave.addEventListener('click', saveSettingsFromPanel);
+
+  // 测试连接
+  $btnSettingsTest.addEventListener('click', testConnectionFromPanel);
+
+  function openSettingsPanel() {
+    if (!$settingsPanel) return;
+    // 关闭历史面板（如果开着）
+    if ($historyPanel) $historyPanel.style.display = 'none';
+    loadSettingsToPanel();
+    $settingsPanel.style.display = 'flex';
+  }
+
+  function closeSettingsPanel() {
+    if ($settingsPanel) $settingsPanel.style.display = 'none';
+  }
+
+  async function loadSettingsToPanel() {
+    const settings = await chrome.storage.sync.get(['apiEndpoint', 'apiKey', 'model', 'systemPrompt', 'theme']);
+    $settingsBaseUrl.value = settings.apiEndpoint || 'https://api.openai.com/v1';
+    $settingsApiKey.value = settings.apiKey || '';
+    $settingsModel.value = settings.model || 'gpt-3.5-turbo';
+    $settingsSystemPrompt.value = settings.systemPrompt || '你是一个有帮助的AI助手。';
+    $settingsTheme.value = settings.theme || 'system';
+
+    // 高亮匹配的预设
+    const currentUrl = $settingsBaseUrl.value.trim().replace(/\/+$/, '');
+    $presets.querySelectorAll('.preset-chip').forEach(c => c.classList.remove('active'));
+    $presets.querySelectorAll('.preset-chip').forEach(c => {
+      if (c.dataset.url && c.dataset.url.trim().replace(/\/+$/, '') === currentUrl) {
+        c.classList.add('active');
+      }
+    });
+    if (!$presets.querySelector('.preset-chip.active')) {
+      const customChip = $presets.querySelector('.preset-chip.custom');
+      if (customChip && currentUrl) customChip.classList.add('active');
+    }
+
+    hideSettingsStatus();
+  }
+
+  async function saveSettingsFromPanel() {
+    const baseUrl = $settingsBaseUrl.value.trim();
+    if (!baseUrl) {
+      showSettingsStatus('请填写 Base URL', 'error');
+      return;
+    }
+
+    const data = {
+      apiEndpoint: baseUrl,
+      apiKey: $settingsApiKey.value.trim(),
+      model: $settingsModel.value.trim(),
+      systemPrompt: $settingsSystemPrompt.value.trim(),
+      theme: $settingsTheme.value
+    };
+
+    await chrome.storage.sync.set(data);
+
+    // 应用主题
+    themePref = data.theme;
+    applyTheme(themePref);
+
+    showSettingsStatus('✓ 设置已保存', 'success');
+  }
+
+  async function testConnectionFromPanel() {
+    const baseUrl = $settingsBaseUrl.value.trim();
+    const apiKey = $settingsApiKey.value.trim();
+    const model = $settingsModel.value.trim();
+
+    if (!baseUrl || !apiKey) {
+      showSettingsStatus('请先填写 Base URL 和 API Key', 'error');
+      return;
+    }
+
+    $btnSettingsTest.disabled = true;
+    const origHTML = $btnSettingsTest.innerHTML;
+    $btnSettingsTest.innerHTML = `<svg viewBox="0 0 24 24" style="animation: spin 1s linear infinite"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0020 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 004 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg> 测试中…`;
+
+    try {
+      const result = await chrome.runtime.sendMessage({
+        type: 'test-connection',
+        settings: { apiEndpoint: baseUrl, apiKey, model }
+      });
+
+      if (result.success) {
+        showSettingsStatus('✓ 连接成功，API 配置正确', 'success');
+      } else {
+        showSettingsStatus(`连接失败: ${result.error}`, 'error');
+      }
+    } catch (err) {
+      showSettingsStatus(`连接失败: ${err.message}`, 'error');
+    } finally {
+      $btnSettingsTest.disabled = false;
+      $btnSettingsTest.innerHTML = origHTML;
+    }
+  }
+
+  function showSettingsStatus(text, type) {
+    if (!$settingsStatus) return;
+    $settingsStatus.textContent = text;
+    $settingsStatus.className = `settings-status show ${type}`;
+    clearTimeout($settingsStatus._timer);
+    $settingsStatus._timer = setTimeout(() => hideSettingsStatus(), 5000);
+  }
+
+  function hideSettingsStatus() {
+    if ($settingsStatus) $settingsStatus.className = 'settings-status';
   }
 
   function renderHistoryList() {

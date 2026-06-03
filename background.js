@@ -1,10 +1,10 @@
 // ============================================================
 // background.js - Service Worker
-// 处理 API 请求、中继流式响应、打开设置页
+// 处理 API 请求、中继流式响应
 // ============================================================
 
 const DEFAULT_SETTINGS = {
-  apiEndpoint: 'https://api.openai.com/v1/chat/completions',
+  apiEndpoint: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-3.5-turbo',
   systemPrompt: '你是一个有帮助的AI助手。',
@@ -44,13 +44,6 @@ function normalizeEndpoint(url) {
 
 // ---- 处理来自 content script 的一次性消息 ----
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  // 打开设置页面
-  if (msg.type === 'open-settings') {
-    chrome.runtime.openOptionsPage();
-    sendResponse({ ok: true });
-    return false;
-  }
-
   // 提供 KaTeX CSS（备选：XHR 被 Chrome 拦截时使用）
   if (msg.type === 'get-katex-css') {
     fetch(chrome.runtime.getURL('lib/katex.min.css'))
