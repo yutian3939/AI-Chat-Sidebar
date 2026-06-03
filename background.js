@@ -129,6 +129,7 @@ async function streamChat(settings, messages, port) {
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
+  let doneSent = false;
 
   try {
     while (true) {
@@ -146,6 +147,7 @@ async function streamChat(settings, messages, port) {
         const data = trimmed.slice(5).trim();
         if (data === '[DONE]') {
           port.postMessage({ type: 'done' });
+          doneSent = true;
           return;
         }
 
@@ -165,7 +167,9 @@ async function streamChat(settings, messages, port) {
       port.postMessage({ type: 'error', content: err.message });
     }
   } finally {
-    port.postMessage({ type: 'done' });
+    if (!doneSent) {
+      port.postMessage({ type: 'done' });
+    }
   }
 }
 

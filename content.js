@@ -76,7 +76,7 @@
     #fab:hover { box-shadow: var(--md-elevation3); }
     #fab:active { border-radius: 12px; }
     #fab svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
-    #fab.open { right: 412px; }
+    #fab.open { /* right 由 JS 动态设置 */ }
 
     /* ---- 侧边栏 ---- */
     #sidebar {
@@ -92,6 +92,16 @@
       color: var(--md-on-surface);
     }
     #sidebar.open { transform: translateX(0); }
+
+    /* 拖拽调整宽度手柄 */
+    #resize-handle {
+      position: absolute; left: 0; top: 0; bottom: 0;
+      width: 6px; cursor: ew-resize; z-index: 20;
+      transition: background .15s;
+    }
+    #resize-handle:hover, #resize-handle.resizing {
+      background: var(--md-primary); opacity: .4;
+    }
 
     /* ---- 头部 ---- */
     .header {
@@ -284,22 +294,24 @@
     .auto-btn-text { position: relative; z-index: 1; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
     .auto-btn-fill {
       position: absolute; left: 0; top: 0; bottom: 0;
-      background: var(--md-primary); opacity: .2;
-      transition: width .35s ease;
+      background: var(--md-primary); opacity: .45;
+      transition: width .4s ease;
       border-radius: 20px 0 0 20px;
       z-index: 0;
     }
-    .auto-btn.paused .auto-btn-fill { opacity: .35; animation: pulse-fill 1.5s ease infinite; }
-    @keyframes pulse-fill { 0%,100% { opacity: .2; } 50% { opacity: .4; } }
+    .auto-btn.paused .auto-btn-fill { opacity: .45; animation: pulse-fill 1.2s ease infinite; }
+    @keyframes pulse-fill { 0%,100% { opacity: .3; } 50% { opacity: .55; } }
     .auto-status {
       font-size: 13px; color: var(--md-on-surface-variant); flex: 1;
     }
     .auto-status .done { color: #2E7D32; }
     :host([data-theme="dark"]) .auto-status .done { color: #81C784; }
 
+    .auto-results-wrap { display: none; }
     .auto-results {
+      align-self: stretch; flex-shrink: 0;
       margin: 0; background: var(--md-surface-container);
-      border-radius: 14px; border: 1px solid var(--md-outline-variant);
+      border-radius: 16px; border: 1px solid var(--md-outline-variant);
       overflow: hidden; animation: fadeUp .3s ease;
     }
     .auto-results-head {
@@ -355,6 +367,55 @@
     .auto-item-loading .dots-sm span:nth-child(3) { animation-delay: .4s; }
     .auto-item-error { color: var(--md-error); font-size: 12px; }
     .auto-item-done { color: var(--md-primary); font-size: 12px; }
+
+    /* ---- 历史记录面板 ---- */
+    .history-panel {
+      position: absolute; top: 0; left: 0; right: 0; bottom: 0;
+      background: var(--md-surface); z-index: 10;
+      display: flex; flex-direction: column;
+    }
+    .history-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 12px 16px;
+      background: var(--md-surface-container);
+      border-bottom: 1px solid var(--md-outline-variant);
+    }
+    .history-title { flex: 1; font-size: 16px; font-weight: 600; color: var(--md-on-surface); }
+    .history-head .icon-btn { width: 36px; height: 36px; border-radius: 18px; }
+    .history-head .icon-btn svg { width: 20px; height: 20px; }
+    .history-list { flex: 1; overflow-y: auto; padding: 8px; }
+    .history-list::-webkit-scrollbar { width: 4px; }
+    .history-list::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 2px; }
+    .history-empty {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      height: 100%; color: var(--md-on-surface-variant); font-size: 14px; gap: 8px;
+    }
+    .history-empty svg { width: 48px; height: 48px; fill: var(--md-outline-variant); }
+    .history-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 12px; border-radius: 12px; cursor: pointer;
+      transition: background .15s; margin-bottom: 4px;
+    }
+    .history-item:hover { background: var(--md-surface-container-high); }
+    .history-item.active { background: var(--md-primary-container); }
+    .history-item-info { flex: 1; min-width: 0; }
+    .history-item-title {
+      font-size: 14px; font-weight: 500; color: var(--md-on-surface);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .history-item-meta {
+      font-size: 12px; color: var(--md-on-surface-variant); margin-top: 2px;
+      display: flex; gap: 12px;
+    }
+    .history-item-del {
+      width: 32px; height: 32px; border-radius: 16px; border: none;
+      background: transparent; cursor: pointer; display: flex; align-items: center;
+      justify-content: center; color: var(--md-outline); flex-shrink: 0;
+      opacity: 0; transition: opacity .15s;
+    }
+    .history-item:hover .history-item-del { opacity: 1; }
+    .history-item-del:hover { background: var(--md-surface-container); color: var(--md-error); }
+    .history-item-del svg { width: 18px; height: 18px; fill: currentColor; }
   `;
 
   // ======================== 状态 ========================
@@ -369,6 +430,7 @@
   let isAutoAnswerPaused = false;
   let autoAnswerAbort = false;
   let autoAnswerQueue = [];
+  let autoAnswerData = null; // { total, results: [{qnum, letter, reason, status}] }
   let $autoResults = null;
   let $autoBtn = null;
   let $autoStatus = null;
@@ -378,6 +440,14 @@
   let isHomework = false;
   let longPressTimer = null;
   let longPressTriggered = false;
+  let sidebarWidth = 400;
+  let resizeState = null;
+
+  // 对话历史
+  let conversations = [];
+  let currentConvId = null;
+  let $historyPanel = null;
+  let $historyList = null;
 
   // ======================== 创建 Shadow DOM ========================
   const host = document.createElement('div');
@@ -411,7 +481,9 @@
   const ICON_SEND = `<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
   const ICON_SETTINGS = `<svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>`;
   const ICON_CLEAR = `<svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`;
-  const ICON_AUTO = `<svg viewBox="0 0 24 24"><path d="M21 10.12h-6.78l2.74-2.82c-2.73-2.7-7.15-2.8-9.88-.1-2.73 2.71-2.73 7.08 0 9.79s7.15 2.71 9.88 0C18.32 15.65 19 14.08 19 12.1h2c0 1.98-.88 4.55-2.64 6.29-3.51 3.48-9.21 3.48-12.72 0-3.5-3.47-3.53-9.11-.02-12.58s9.14-3.47 12.65 0L21 3v7.12zM12.5 8v4.25l3.5 2.08-.72 1.21L11 13V8h1.5z"/></svg>`;
+  const ICON_AUTO = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+  const ICON_HISTORY = `<svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>`;
+  const ICON_NEW = `<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04c.39-.39.39-1.02 0-1.41l-2.34-2.34c-.39-.39-1.02-.39-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
 
   // ======================== 构建 DOM ========================
   const style = document.createElement('style');
@@ -429,10 +501,12 @@
   const sidebar = document.createElement('div');
   sidebar.id = 'sidebar';
   sidebar.innerHTML = `
+    <div id="resize-handle"></div>
     <div class="header">
       <svg class="header-icon" viewBox="0 0 24 24"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg>
       <span class="header-title">AI 助手</span>
-      <button class="icon-btn" id="btn-clear" title="清空对话">${ICON_CLEAR}</button>
+      <button class="icon-btn" id="btn-history" title="历史记录">${ICON_HISTORY}</button>
+      <button class="icon-btn" id="btn-new-chat" title="新建对话">${ICON_NEW}</button>
       <button class="icon-btn" id="btn-settings" title="设置">${ICON_SETTINGS}</button>
       <button class="icon-btn" id="btn-close" title="关闭">${ICON_CLOSE}</button>
     </div>
@@ -441,6 +515,19 @@
         <svg viewBox="0 0 24 24"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg>
         <h3>AI 对话助手</h3>
         <p>点击右下角悬浮球开始对话<br>首次使用请先前往设置配置 API</p>
+      </div>
+    </div>
+    <div class="history-panel" id="history-panel" style="display:none">
+      <div class="history-head">
+        <button class="icon-btn" id="btn-history-back" title="返回">${ICON_CLOSE}</button>
+        <span class="history-title">历史记录</span>
+        <button class="icon-btn" id="btn-history-new" title="新建对话">${ICON_NEW}</button>
+      </div>
+      <div class="history-list" id="history-list">
+        <div class="history-empty">
+          <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+          <span>暂无历史记录</span>
+        </div>
       </div>
     </div>
     <div class="auto-row" id="auto-row" style="display:none">
@@ -462,6 +549,49 @@
   shadow.appendChild(fab);
   shadow.appendChild(sidebar);
 
+  // 加载侧边栏宽度偏好
+  chrome.storage.sync.get('sidebarWidth', ({ sidebarWidth: sw }) => {
+    if (sw && sw >= 320) {
+      sidebarWidth = sw;
+      sidebar.style.width = sidebarWidth + 'px';
+      if (sidebarOpen) fab.style.right = (sidebarWidth + 12) + 'px';
+    }
+  });
+
+  // 拖拽调整侧边栏宽度
+  const resizeHandle = shadow.getElementById('resize-handle');
+  resizeHandle.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    resizeState = { startX: e.clientX, startWidth: sidebarWidth };
+    resizeHandle.classList.add('resizing');
+    resizeHandle.setPointerCapture(e.pointerId);
+    sidebar.style.transition = 'none';
+  });
+  resizeHandle.addEventListener('pointermove', (e) => {
+    if (!resizeState) return;
+    const dx = resizeState.startX - e.clientX;
+    let newWidth = Math.round(resizeState.startWidth + dx);
+    newWidth = Math.max(300, Math.min(window.innerWidth * 0.7, newWidth));
+    sidebarWidth = newWidth;
+    sidebar.style.width = sidebarWidth + 'px';
+    if (sidebarOpen) fab.style.right = (sidebarWidth + 12) + 'px';
+  });
+  resizeHandle.addEventListener('pointerup', () => {
+    if (!resizeState) return;
+    resizeHandle.classList.remove('resizing');
+    resizeState = null;
+    sidebar.style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
+    chrome.storage.sync.set({ sidebarWidth });
+  });
+  resizeHandle.addEventListener('pointerleave', () => {
+    if (resizeState) {
+      resizeHandle.classList.remove('resizing');
+      resizeState = null;
+      sidebar.style.transition = 'transform .3s cubic-bezier(.4,0,.2,1)';
+      chrome.storage.sync.set({ sidebarWidth });
+    }
+  });
+
   // 快捷引用
   const $messages = shadow.getElementById('messages');
   const $input = shadow.getElementById('input');
@@ -471,6 +601,8 @@
   $autoRow = shadow.getElementById('auto-row');
   $autoBtnFill = shadow.getElementById('auto-btn-fill');
   $autoBtnText = shadow.getElementById('auto-btn-text');
+  $historyPanel = shadow.getElementById('history-panel');
+  $historyList = shadow.getElementById('history-list');
 
   // ======================== 事件绑定 ========================
 
@@ -504,12 +636,18 @@
   // -- 侧边栏按钮 --
   shadow.getElementById('btn-close').addEventListener('click', () => toggleSidebar(false));
 
-  // ✅ 修复：通过消息让 background 打开设置页，兼容所有上下文
   shadow.getElementById('btn-settings').addEventListener('click', () => {
     chrome.runtime.sendMessage({ type: 'open-settings' });
   });
 
-  shadow.getElementById('btn-clear').addEventListener('click', clearChat);
+  // 历史记录
+  shadow.getElementById('btn-history').addEventListener('click', openHistoryPanel);
+  shadow.getElementById('btn-history-back').addEventListener('click', closeHistoryPanel);
+  shadow.getElementById('btn-history-new').addEventListener('click', () => { closeHistoryPanel(); newChat(); });
+
+  // 新建对话
+  shadow.getElementById('btn-new-chat').addEventListener('click', newChat);
+
 
   // 自动答题按钮：点击 = 开始/暂停/恢复，长按(800ms) = 结束
   $autoBtn.addEventListener('pointerdown', (e) => {
@@ -532,14 +670,86 @@
   });
 
   // -- 输入框 --
-  $input.addEventListener('keydown', (e) => {
+  let isComposing = false;
+  $input.addEventListener('compositionstart', () => { isComposing = true; });
+  $input.addEventListener('compositionend', () => { isComposing = false; });
+
+  // 在 window 上注册 capture 监听 — 比赛谁先到！document_start 保证我们先
+  window.addEventListener('keydown', (e) => {
+    // composedPath 穿透 Shadow DOM，确认目标是我们 textarea
+    if (!e.composedPath().includes($input)) return;
+    if (isComposing) return;
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
+      e.stopImmediatePropagation(); // 阻止学习通后续拿事件
       sendMessage();
     }
-  });
+  }, true);
   $input.addEventListener('input', autoResize);
   $sendBtn.addEventListener('click', sendMessage);
+
+  // 抽取发送核心（不读 textarea，直接传文本）
+  function doSend(text) {
+    if (!text || isStreaming) return;
+    addMessage('user', text);
+    chatHistory.push({ role: 'user', content: text });
+    isStreaming = true;
+    $sendBtn.disabled = true;
+    addLoading();
+
+    currentPort = chrome.runtime.connect({ name: 'ai-chat' });
+    let aiBubble = null;
+    let fullText = '';
+
+    currentPort.onMessage.addListener((msg) => {
+      if (msg.type === 'chunk') {
+        if (!aiBubble) {
+          removeLoading();
+          aiBubble = addMessage('ai', '');
+        }
+        fullText += msg.content;
+        aiBubble.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
+        scrollToBottom();
+      } else if (msg.type === 'error') {
+        removeLoading();
+        addError(msg.content);
+        saveConversation();
+        isStreaming = false;
+        currentPort = null;
+        $sendBtn.disabled = !$input.value.trim();
+      } else if (msg.type === 'done') {
+        removeLoading();
+        if (aiBubble) {
+          aiBubble.innerHTML = renderMarkdown(fullText);
+        }
+        if (fullText) {
+          chatHistory.push({ role: 'assistant', content: fullText });
+          saveConversation();
+        }
+        isStreaming = false;
+        currentPort = null;
+        $sendBtn.disabled = !$input.value.trim();
+      }
+    });
+
+    currentPort.onDisconnect.addListener(() => {
+      removeLoading();
+      if (isStreaming) {
+        if (aiBubble) {
+          aiBubble.innerHTML = renderMarkdown(fullText);
+        }
+        if (fullText) {
+          chatHistory.push({ role: 'assistant', content: fullText });
+          saveConversation();
+        }
+        isStreaming = false;
+        currentPort = null;
+        $sendBtn.disabled = !$input.value.trim();
+      }
+    });
+
+    currentPort.postMessage({ type: 'init', history: [...chatHistory] });
+  }
 
   // -- 代码复制 (事件委托) --
   shadow.addEventListener('click', (e) => {
@@ -560,25 +770,89 @@
     sidebar.classList.toggle('open', sidebarOpen);
     fab.classList.toggle('open', sidebarOpen);
     if (sidebarOpen) {
-      // 检测是否为作业页面，显示/隐藏自动答题按钮
+      fab.style.right = (sidebarWidth + 12) + 'px';
       isHomework = !!document.querySelector('.questionLi[typename="单选题"]');
       $autoRow.style.display = isHomework ? 'flex' : 'none';
       if (isHomework) $autoStatus.textContent = '';
       setTimeout(() => $input.focus(), 320);
+    } else {
+      fab.style.right = '';
     }
   }
 
   function autoResize() {
     $input.style.height = 'auto';
     $input.style.height = Math.min($input.scrollHeight, 120) + 'px';
-    $sendBtn.disabled = !$input.value.trim() && !isStreaming;
+    $sendBtn.disabled = !$input.value.trim() || isStreaming;
   }
 
   // ======================== 聊天功能 ========================
-  function clearChat() {
+
+  // 自动生成对话标题（取首条用户消息前 20 字）
+  function genConvTitle() {
+    const firstUser = chatHistory.find(m => m.role === 'user');
+    if (firstUser) return firstUser.content.slice(0, 20) + (firstUser.content.length > 20 ? '…' : '');
+    return '新对话';
+  }
+
+  // 保存当前对话到 storage.local
+  async function saveConversation() {
+    if (chatHistory.length === 0) return;
+    if (!currentConvId) {
+      currentConvId = 'conv_' + Date.now();
+    }
+    const idx = conversations.findIndex(c => c.id === currentConvId);
+    const conv = {
+      id: currentConvId,
+      title: genConvTitle(),
+      messages: [...chatHistory],
+      updatedAt: Date.now(),
+      createdAt: idx >= 0 ? conversations[idx].createdAt : Date.now(),
+      autoAnswerData: autoAnswerData ? { ...autoAnswerData } : null
+    };
+    if (idx >= 0) conversations[idx] = conv;
+    else conversations.unshift(conv);
+    await chrome.storage.local.set({ conversations, currentConvId });
+  }
+
+  // 加载历史
+  async function loadConversations() {
+    const data = await chrome.storage.local.get(['conversations', 'currentConvId']);
+    conversations = data.conversations || [];
+    currentConvId = data.currentConvId || null;
+    // 如果有当前对话，恢复消息和结果面板
+    if (currentConvId) {
+      const conv = conversations.find(c => c.id === currentConvId);
+      if (conv) {
+        chatHistory = [...conv.messages];
+        autoAnswerData = conv.autoAnswerData || null;
+        clearAutoResultsPanel();
+        restoreMessagesFromHistory();
+        if (autoAnswerData) restoreAutoResultsPanel(autoAnswerData);
+        scrollToBottom();
+        return;
+      }
+    }
+    currentConvId = null;
     chatHistory = [];
+    autoAnswerData = null;
+  }
+
+  // 从 chatHistory 恢复 UI 消息
+  function restoreMessagesFromHistory() {
     $messages.innerHTML = '';
-    // 重新创建欢迎页
+    chatHistory.forEach(m => {
+      // 过滤自动答题消息：_auto 标记 OR 内容以 [第N题] 开头
+      if (m._auto) return;
+      if (/^\[第\d+题\]/.test(m.content)) return;
+      if (m.role === 'user') addMessageBubble('user', m.content);
+      else if (m.role === 'assistant') addMessageBubble('ai', m.content);
+    });
+    if (chatHistory.length === 0) showWelcome();
+  }
+
+  function showWelcome() {
+    $messages.innerHTML = '';
     const wel = document.createElement('div');
     wel.className = 'welcome';
     wel.id = 'welcome';
@@ -588,8 +862,139 @@
       <p>输入消息开始对话<br>首次使用请先前往设置配置 API</p>
     `;
     $messages.appendChild(wel);
-    // 清除自动答题结果
-    $autoResults = null;
+  }
+
+  // 新建对话
+  async function newChat() {
+    if (isStreaming) return;
+    // 保存当前对话
+    if (currentConvId && chatHistory.length > 0) {
+      await saveConversation();
+    }
+    currentConvId = null;
+    chatHistory = [];
+    autoAnswerData = null;
+    clearAutoResultsPanel();
+    showWelcome();
+    $input.value = '';
+    autoResize();
+    // 重新渲染历史列表
+    renderHistoryList();
+  }
+
+  // 删除对话
+  async function deleteConversation(id) {
+    const idx = conversations.findIndex(c => c.id === id);
+    if (idx >= 0) {
+      conversations.splice(idx, 1);
+      if (currentConvId === id) {
+        currentConvId = null;
+        chatHistory = [];
+        autoAnswerData = null;
+        clearAutoResultsPanel();
+        showWelcome();
+      }
+      await chrome.storage.local.set({ conversations, currentConvId });
+      renderHistoryList();
+    }
+  }
+
+  // 切换到指定对话
+  async function switchConversation(id) {
+    if (isStreaming) return;
+    if (currentConvId && chatHistory.length > 0) {
+      await saveConversation();
+    }
+    const conv = conversations.find(c => c.id === id);
+    if (!conv) return;
+    currentConvId = conv.id;
+    chatHistory = [...conv.messages];
+    autoAnswerData = conv.autoAnswerData || null;
+    clearAutoResultsPanel();
+    restoreMessagesFromHistory();
+    if (autoAnswerData) restoreAutoResultsPanel(autoAnswerData);
+    scrollToBottom();
+    await chrome.storage.local.set({ currentConvId });
+    closeHistoryPanel();
+  }
+
+  // 清除结果面板 DOM
+  function clearAutoResultsPanel() {
+    if ($autoResults) { $autoResults.remove(); $autoResults = null; }
+  }
+
+  // 历史记录面板
+  function openHistoryPanel() {
+    if ($historyPanel) {
+      $historyPanel.style.display = 'flex';
+      renderHistoryList();
+    }
+  }
+
+  function closeHistoryPanel() {
+    if ($historyPanel) $historyPanel.style.display = 'none';
+  }
+
+  function renderHistoryList() {
+    if (!$historyList) return;
+    if (conversations.length === 0) {
+      $historyList.innerHTML = `
+        <div class="history-empty">
+          <svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>
+          <span>暂无历史记录</span>
+        </div>`;
+      return;
+    }
+    $historyList.innerHTML = conversations.map(c => {
+      const msgCount = c.messages ? c.messages.length : 0;
+      const date = new Date(c.updatedAt || c.createdAt);
+      const dateStr = `${date.getMonth() + 1}/${date.getDate()} ${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+      const isActive = c.id === currentConvId;
+      return `
+        <div class="history-item${isActive ? ' active' : ''}" data-id="${c.id}">
+          <div class="history-item-info">
+            <div class="history-item-title">${escapeHtml(c.title || '新对话')}</div>
+            <div class="history-item-meta">
+              <span>${msgCount} 条消息</span>
+              <span>${dateStr}</span>
+            </div>
+          </div>
+          <button class="history-item-del" data-del="${c.id}" title="删除">${ICON_CLEAR}</button>
+        </div>`;
+    }).join('');
+
+    // 绑定点击事件
+    $historyList.querySelectorAll('.history-item').forEach(el => {
+      el.addEventListener('click', (e) => {
+        if (e.target.closest('.history-item-del')) return;
+        switchConversation(el.dataset.id);
+      });
+    });
+    $historyList.querySelectorAll('.history-item-del').forEach(el => {
+      el.addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteConversation(el.dataset.del);
+      });
+    });
+  }
+
+  function addMessageBubble(role, text) {
+    const wrap = document.createElement('div');
+    wrap.className = `msg ${role}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    if (role === 'user') {
+      bubble.textContent = text;
+    } else {
+      bubble.innerHTML = renderMarkdown(text);
+    }
+    wrap.appendChild(bubble);
+    const ts = document.createElement('div');
+    ts.className = 'ts';
+    ts.textContent = timeStr();
+    wrap.appendChild(ts);
+    $messages.appendChild(wrap);
+    return bubble;
   }
 
   function timeStr() {
@@ -599,23 +1004,7 @@
   function addMessage(role, text) {
     const wel = shadow.getElementById('welcome');
     if (wel) wel.remove();
-
-    const wrap = document.createElement('div');
-    wrap.className = `msg ${role}`;
-    const bubble = document.createElement('div');
-    bubble.className = 'bubble';
-    wrap.appendChild(bubble);
-    const ts = document.createElement('div');
-    ts.className = 'ts';
-    ts.textContent = timeStr();
-    wrap.appendChild(ts);
-
-    if (role === 'user') {
-      bubble.textContent = text;
-    } else {
-      bubble.innerHTML = renderMarkdown(text);
-    }
-    $messages.appendChild(wrap);
+    const bubble = addMessageBubble(role, text);
     scrollToBottom();
     return bubble;
   }
@@ -661,59 +1050,9 @@
   async function sendMessage() {
     const text = $input.value.trim();
     if (!text || isStreaming) return;
-
-    addMessage('user', text);
-    chatHistory.push({ role: 'user', content: text });
     $input.value = '';
     autoResize();
-
-    isStreaming = true;
-    $sendBtn.disabled = true;
-    addLoading();
-
-    currentPort = chrome.runtime.connect({ name: 'ai-chat' });
-    let aiBubble = null;
-    let fullText = '';
-
-    currentPort.onMessage.addListener((msg) => {
-      if (msg.type === 'chunk') {
-        if (!aiBubble) {
-          removeLoading();
-          aiBubble = addMessage('ai', '');
-        }
-        fullText += msg.content;
-        aiBubble.innerHTML = renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
-        scrollToBottom();
-      } else if (msg.type === 'error') {
-        removeLoading();
-        addError(msg.content);
-      } else if (msg.type === 'done') {
-        removeLoading();
-        if (aiBubble) {
-          aiBubble.innerHTML = renderMarkdown(fullText);
-        }
-        if (fullText) {
-          chatHistory.push({ role: 'assistant', content: fullText });
-        }
-        isStreaming = false;
-        currentPort = null;
-        $sendBtn.disabled = !$input.value.trim();
-      }
-    });
-
-    currentPort.onDisconnect.addListener(() => {
-      removeLoading();
-      if (isStreaming) {
-        if (aiBubble) {
-          aiBubble.innerHTML = renderMarkdown(fullText);
-        }
-        isStreaming = false;
-        currentPort = null;
-        $sendBtn.disabled = !$input.value.trim();
-      }
-    });
-
-    currentPort.postMessage({ type: 'init', history: [...chatHistory] });
+    doSend(text);
   }
 
   // ======================== Markdown 渲染 ========================
@@ -835,15 +1174,16 @@
    */
   function clickSaveButton() {
     try {
-      // 查找「暂时保存」链接
-      const saveLink = document.querySelector('a[tabindex="0"]');
-      if (saveLink && saveLink.textContent.includes('暂时保存')) {
-        saveLink.click();
-        return true;
-      }
-      // 备选：调用页面 saveWork 函数
+      // 优先调用页面 saveWork 函数（不触发 CSP 报错）
       if (typeof window.saveWork === 'function') {
         window.saveWork();
+        return true;
+      }
+      // 备选：查找「暂时保存」链接
+      const saveLink = document.querySelector('a[tabindex="0"]');
+      if (saveLink && saveLink.textContent.includes('暂时保存')) {
+        // 用 dispatchEvent 代替 click，避免 CSP 拦截 href="javascript:;"
+        saveLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
         return true;
       }
       return false;
@@ -925,13 +1265,12 @@
   }
 
   /**
-   * 在消息区域创建/获取自动答题结果面板
+   * 在消息列表中创建/获取自动答题结果面板（作为特殊气泡）
    */
-  function ensureAutoResults() {
-    if ($autoResults) {
-      if ($autoResults.style.display === 'none') $autoResults.style.display = '';
-      return $autoResults;
-    }
+  function ensureAutoResults(forceNew) {
+    if ($autoResults && !forceNew) return $autoResults;
+    if ($autoResults) { $autoResults.remove(); $autoResults = null; }
+
     const wel = shadow.getElementById('welcome');
     if (wel) wel.remove();
 
@@ -956,8 +1295,31 @@
       arr.classList.toggle('fold', hidden);
     });
 
-    scrollToBottom();
     return $autoResults;
+  }
+
+  /**
+   * 从保存的数据重建结果面板（切换历史时调用）
+   */
+  function restoreAutoResultsPanel(data) {
+    if (!data || !data.results || data.results.length === 0) return;
+    autoAnswerData = data;
+    ensureAutoResults(true);
+    const title = shadow.getElementById('auto-results-title');
+    if (title) title.textContent = `答题结果 (共${data.total}题)`;
+    const summary = shadow.getElementById('auto-results-summary');
+    const doneCount = data.results.filter(r => r.status === 'done').length;
+    if (summary) summary.textContent = `${doneCount}/${data.total} 题`;
+
+    data.results.forEach(r => updateAutoItem(r.qnum, r.status, r));
+
+    // 展开面板
+    const body = shadow.getElementById('auto-results-body');
+    const arr = shadow.getElementById('auto-arr');
+    if (body && body.classList.contains('hidden')) {
+      body.classList.remove('hidden');
+      arr.classList.remove('fold');
+    }
   }
 
   /**
@@ -1053,12 +1415,28 @@
   }
 
   /**
+   * 清除所有"正在作答"状态
+   */
+  function clearAllLoadingItems(statusText) {
+    const body = shadow.getElementById('auto-results-body');
+    if (!body) return;
+    body.querySelectorAll('.auto-item-loading').forEach(el => {
+      const item = el.closest('.auto-item');
+      if (item) {
+        const itemBody = item.querySelector('.auto-item-body');
+        if (itemBody) itemBody.innerHTML = `<div class="auto-item-reason">${statusText}</div>`;
+      }
+    });
+  }
+
+  /**
    * 停止自动答题（长按触发）
    */
   function stopAutoAnswer() {
     if (!isAutoAnswering) return;
     autoAnswerAbort = true;
     isAutoAnswerPaused = false;
+    clearAllLoadingItems('已取消');
     clickSaveButton();
   }
 
@@ -1084,7 +1462,7 @@
     // === 进行中 → 暂停 ===
     if (isAutoAnswering && !isAutoAnswerPaused) {
       isAutoAnswerPaused = true;
-      updateAutoStatus(0, 0); // will be recalculated below
+      clearAllLoadingItems('等待继续');
       // 计算已完成的
       let doneCount = 0;
       if (autoAnswerQueue.length > 0) {
@@ -1123,6 +1501,14 @@
     $autoBtn.disabled = false;
     autoAnswerQueue = unanswered;
 
+    // 初始化答题数据
+    autoAnswerData = { total: allQuestions.length, results: [] };
+    allQuestions.forEach(q => {
+      if (q.answered) {
+        autoAnswerData.results.push({ qnum: q.qnum, letter: '', reason: '已作答，跳过', status: 'skipped' });
+      }
+    });
+
     ensureAutoResults();
     const totalAll = allQuestions.length;
     const title = shadow.getElementById('auto-results-title');
@@ -1138,6 +1524,7 @@
     for (let i = 0; i < unanswered.length; i++) {
       // 检查是否被终止
       if (autoAnswerAbort) {
+        saveConversation();
         updateAutoStatus(completedCount, totalAll);
         return;
       }
@@ -1147,6 +1534,7 @@
         await sleep(300);
       }
       if (autoAnswerAbort) {
+        saveConversation();
         updateAutoStatus(completedCount, totalAll);
         return;
       }
@@ -1156,6 +1544,11 @@
       updateAutoStatus(completedCount, totalAll);
       scrollToQuestion(q.qid);
 
+      // 将题目作为用户消息加入聊天上下文（不渲染UI）
+      const optionsText = q.options.map(o => `${o.letter}. ${o.text}`).join('\n');
+      const questionMsg = `[第${q.qnum}题] ${q.question}\n\n${optionsText}`;
+      chatHistory.push({ role: 'user', content: questionMsg, _auto: true });
+
       try {
         const result = await chrome.runtime.sendMessage({
           type: 'answer-question',
@@ -1164,23 +1557,40 @@
         });
 
         if (autoAnswerAbort) {
+          saveConversation();
+          updateAutoStatus(completedCount, totalAll);
+          return;
+        }
+        // API 返回时如果已暂停，等待恢复或终止后再处理结果
+        while (isAutoAnswerPaused && !autoAnswerAbort) {
+          await sleep(200);
+        }
+        if (autoAnswerAbort) {
+          saveConversation();
           updateAutoStatus(completedCount, totalAll);
           return;
         }
 
         if (result.letter) {
           const filled = fillAnswer(q.qid, result.letter);
-          updateAutoItem(q.qnum, 'done', {
-            letter: result.letter,
-            reason: (filled ? '' : '⚠ 未找到选项 ') + (result.reason || '')
-          });
+          const reason = (filled ? '' : '⚠ 未找到选项 ') + (result.reason || '');
+          updateAutoItem(q.qnum, 'done', { letter: result.letter, reason });
+          // 将 AI 回答加入聊天上下文（不渲染UI）
+          const answerMsg = `答案: ${result.letter}${result.reason ? '\n\n' + result.reason : ''}`;
+          chatHistory.push({ role: 'assistant', content: answerMsg, _auto: true });
+          // 记录答题数据供恢复
+          autoAnswerData.results.push({ qnum: q.qnum, letter: result.letter, reason, status: 'done' });
         } else if (result.error) {
           updateAutoItem(q.qnum, 'error', { error: result.error });
+          chatHistory.push({ role: 'assistant', content: `❌ [第${q.qnum}题] 答题失败: ${result.error}`, _auto: true });
+          autoAnswerData.results.push({ qnum: q.qnum, letter: '', reason: '', status: 'error' });
         } else {
           updateAutoItem(q.qnum, 'error', { error: 'AI 返回格式异常' });
+          autoAnswerData.results.push({ qnum: q.qnum, letter: '', reason: '', status: 'error' });
         }
       } catch (err) {
         updateAutoItem(q.qnum, 'error', { error: err.message });
+        autoAnswerData.results.push({ qnum: q.qnum, letter: '', reason: '', status: 'error' });
       }
 
       completedCount++;
@@ -1188,9 +1598,13 @@
       if (completedCount % 3 === 0) clickSaveButton();
     }
 
+    // 答题结束，保存对话历史
+    saveConversation();
     updateAutoStatus(totalAll, totalAll);
   }
 
   // ======================== 挂载 ========================
+  // 加载历史记录
+  loadConversations();
   document.documentElement.appendChild(host);
 })();
