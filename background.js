@@ -51,6 +51,15 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 
+  // 提供 KaTeX CSS（备选：XHR 被 Chrome 拦截时使用）
+  if (msg.type === 'get-katex-css') {
+    fetch(chrome.runtime.getURL('lib/katex.min.css'))
+      .then(r => r.text())
+      .then(css => sendResponse({ css }))
+      .catch(() => sendResponse({ css: '' }));
+    return true;
+  }
+
   // 测试 API 连接
   if (msg.type === 'test-connection') {
     testConnection(msg.settings).then(sendResponse);

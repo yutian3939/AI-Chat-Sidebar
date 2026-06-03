@@ -3,8 +3,23 @@
 // 使用 Shadow DOM 隔离样式，遵循 Material Design 3
 // ============================================================
 
-(() => {
+(async () => {
   'use strict';
+
+  // 加载 KaTeX CSS（XHR 优先，失败则走 background 消息）
+  let katexCss = '';
+  try {
+    const xhr = new XMLHttpRequest();
+    xhr.open('GET', chrome.runtime.getURL('lib/katex.min.css'), false);
+    xhr.send();
+    if (xhr.status === 200) katexCss = xhr.responseText;
+  } catch(e) {}
+  if (!katexCss) {
+    try {
+      const res = await chrome.runtime.sendMessage({ type: 'get-katex-css' });
+      if (res && res.css) katexCss = res.css;
+    } catch(e) {}
+  }
 
   // ======================== MD3 样式 ========================
   const CSS = `
@@ -416,7 +431,7 @@
     .history-item:hover .history-item-del { opacity: 1; }
     .history-item-del:hover { background: var(--md-surface-container); color: var(--md-error); }
     .history-item-del svg { width: 18px; height: 18px; fill: currentColor; }
-  `;
+  ` + katexCss;
 
   // ======================== 状态 ========================
   let sidebarOpen = false;
@@ -548,6 +563,8 @@
   shadow.appendChild(style);
   shadow.appendChild(fab);
   shadow.appendChild(sidebar);
+
+
 
   // 加载侧边栏宽度偏好
   chrome.storage.sync.get('sidebarWidth', ({ sidebarWidth: sw }) => {
@@ -983,11 +1000,7 @@
     wrap.className = `msg ${role}`;
     const bubble = document.createElement('div');
     bubble.className = 'bubble';
-    if (role === 'user') {
-      bubble.textContent = text;
-    } else {
-      bubble.innerHTML = renderMarkdown(text);
-    }
+    bubble.innerHTML = renderMarkdown(text);
     wrap.appendChild(bubble);
     const ts = document.createElement('div');
     ts.className = 'ts';
@@ -1071,6 +1084,30 @@
       return `\x00CB${idx}\x00`;
     });
 
+    // ---- KaTeX 数学公式渲染 ----
+    const mathBlocks = [];
+    if (typeof katex !== 'undefined') {
+      // 块级公式 $$...$$ 或 \[...\]
+      text = text.replace(/\$\$([\s\S]*?)\$\$|\\\[([\s\S]*?)\\\]/g, (m, m1, m2) => {
+        const math = ((m1 || m2) || '').trim();
+        if (!math) return m;
+        const idx = mathBlocks.length;
+        try {
+          mathBlocks.push(katex.renderToString(math, { displayMode: true, throwOnError: false }));
+        } catch { mathBlocks.push('<code class="math-fallback">' + escapeHtml(math) + '</code>'); }
+        return '\x00MB' + idx + '\x00';
+      });
+      // 行内公式 \(...\)
+      text = text.replace(/\\\(([\s\S]*?)\\\)/g, (_, math) => {
+        if (!math.trim()) return _;
+        const idx = mathBlocks.length;
+        try {
+          mathBlocks.push(katex.renderToString(math.trim(), { displayMode: false, throwOnError: false }));
+        } catch { mathBlocks.push('<code class="math-fallback">' + escapeHtml(math.trim()) + '</code>'); }
+        return '\x00MB' + idx + '\x00';
+      });
+    }
+
     const lines = text.split('\n');
     let html = '';
     let inUl = false, inOl = false;
@@ -1087,6 +1124,14 @@
       if (cbMatch) {
         closeLists();
         html += codeBlocks[parseInt(cbMatch[1])];
+        continue;
+      }
+
+      // 数学占位行
+      const mbMatch = trimmed.match(/^\x00MB(\d+)\x00$/);
+      if (mbMatch) {
+        closeLists();
+        html += mathBlocks[parseInt(mbMatch[1])];
         continue;
       }
 
@@ -1133,6 +1178,7 @@
     closeLists();
 
     html = html.replace(/\x00CB(\d+)\x00/g, (_, i) => codeBlocks[parseInt(i)]);
+    html = html.replace(/\x00MB(\d+)\x00/g, (_, i) => mathBlocks[parseInt(i) || 0] || '');
     return sanitize(html);
   }
 

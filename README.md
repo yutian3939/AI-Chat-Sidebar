@@ -1,39 +1,70 @@
 # AI Chat Sidebar - Edge 浏览器扩展
 
-一个遵循 Material Design 3 设计语言的 AI 对话侧边栏浏览器扩展，支持任何 OpenAI 兼容格式的 API 服务商。
+MD3 风格 AI 对话侧边栏，支持 OpenAI 兼容 API。特别优化超星学习通作业自动答题。
 
 ## ✨ 功能特性
 
-- 🎯 **右侧悬浮球** - 可拖拽定位，点击展开/收起侧边栏
-- 💬 **AI 对话** - 支持流式响应（Streaming），实时显示 AI 回复
-- 🎨 **MD3 设计** - 遵循 Material Design 3 设计规范，支持亮色/暗色主题
-- ⚙️ **自定义配置** - 支持自定义 API 端点、API Key、模型名称和系统提示词
-- 📝 **Markdown 渲染** - 支持标题、列表、代码块、链接等格式
-- 📋 **代码复制** - 代码块一键复制
-- 🔌 **广泛兼容** - 支持 OpenAI、DeepSeek、通义千问、GLM、Moonshot 等服务商
+### 通用 AI 对话
+- 🎯 **右侧悬浮球** — 可拖拽定位，点击展开/收起侧边栏（32px，约为原始一半大小）
+- ↔️ **拖拽调宽** — 左边缘拖拽调整侧边栏宽度（300px ~ 70%），持久化记忆
+- 💬 **流式对话** — 支持 SSE 流式响应，逐 token 实时渲染
+- 🎨 **MD3 主题** — Material Design 3，亮色/暗色自动跟随系统
+- 📝 **Markdown 渲染** — 标题、列表、代码块（一键复制）、链接
+- 🕐 **对话历史** — 自动保存 + 历史面板查看/切换/删除
+- ✏ **新建对话** — 一键开启新会话，旧会话自动存入历史
 
-## 🚀 安装方法
+### 🎓 超星学习通自动答题
+- 📋 **自动识别** — 检测页面单选题，显示「▶ 自动答题」按钮
+- 🤖 **逐题作答** — 提取题目 → 调用 AI → 自动点击选项
+- ⏯ **暂停/恢复** — 点击暂停，再次点击继续；长按结束
+- 📊 **进度显示** — 按钮自身充当进度条，实时显示 `5/18`
+- 📦 **结果面板** — 折叠式答题结果，显示题号+答案+解析
+- 💬 **上下文追问** — 每道题的问答存入对话上下文，可继续追问
+- 💾 **防丢保护** — 自动点击页面「暂时保存」，暂停/结束/每3题触发
+- 🔒 **独立提示词** — 自动答题专用系统提示词，与聊天分离
 
-1. 打开 Edge 浏览器，访问 `edge://extensions/`
+### 兼容性
+- 🔌 OpenAI / DeepSeek / 通义千问 / GLM / Moonshot 等服务商
+- ⚙️ 自定义 API 端点（自动补全路径）、Key、模型、系统提示词
+
+## 🚀 安装
+
+1. 打开 Edge，访问 `edge://extensions/`
 2. 开启右上角 **"开发人员模式"**
-3. 点击 **"加载解压缩的扩展"**
-4. 选择本项目文件夹 `my-extension`
+3. 点击 **"加载解压缩的扩展"** → 选择 `my-extension` 文件夹
+
+> 修改 `manifest.json` 后需点击扩展卡片上的 🔄 刷新，再刷新目标页面。
 
 ## 📖 使用说明
 
 ### 首次配置
 
-1. 点击页面右侧的紫色悬浮球（AI 图标）
-2. 在侧边栏顶部点击 ⚙️ 设置按钮
-3. 填写以下信息：
-   - **API 端点** - 你的服务商 Chat Completions 接口地址
-   - **API Key** - 你的 API 密钥
-   - **模型名称** - 使用的模型（如 `gpt-4o`、`deepseek-chat`）
-   - **系统提示词** - AI 的角色设定（可选）
-4. 点击 **"保存设置"**
-5. 可选：点击 **"测试连接"** 验证配置是否正确
+1. 点击右侧悬浮球 → 展开侧边栏
+2. 头部 ⚙️ → 设置页填写 API 端点 / Key / 模型
+3. 保存 → 可选「测试连接」验证
 
-### 常用 API 端点示例
+### 日常聊天
+
+| 操作 | 方式 |
+|------|------|
+| 发送消息 | `Enter` 或点击发送按钮 |
+| 换行 | `Shift + Enter` |
+| 新建对话 | 头部 ✏ 按钮 |
+| 查看历史 | 头部 🕐 按钮 |
+| 拖拽悬浮球 | 按住上下拖动 |
+| 调整侧边栏宽 | 左侧边缘拖拽 |
+| 关闭侧边栏 | ✕ 或点击悬浮球 |
+
+### 自动答题（学习通作业页面）
+
+1. 打开作业页 → 展开侧边栏 → 输入框上方出现「▶ 自动答题」
+2. 点击 → 开始逐题作答，按钮显示进度
+3. **点击** → 暂停（自动保存），再点击 → 恢复
+4. **长按 800ms** → 结束答题（自动保存）
+5. 结果面板出现在消息列表中，可折叠/展开
+6. 答完后可在聊天框追问（如「第 3 题为什么选 C？」）
+
+### 常用 API 端点
 
 | 服务商 | API 端点 |
 |--------|---------|
@@ -41,35 +72,24 @@
 | DeepSeek | `https://api.deepseek.com/v1/chat/completions` |
 | 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions` |
 | Moonshot | `https://api.moonshot.cn/v1/chat/completions` |
-| GLM (智谱) | `https://open.bigmodel.cn/api/paas/v4/chat/completions` |
-
-### 日常使用
-
-- **发送消息** - 在输入框输入文字，按 `Enter` 或点击发送按钮
-- **换行** - 按 `Shift + Enter`
-- **拖拽悬浮球** - 按住悬浮球上下拖动调整位置
-- **清空对话** - 点击侧边栏顶部的 🗑️ 按钮
-- **关闭侧边栏** - 点击 ✕ 按钮或再次点击悬浮球
+| GLM | `https://open.bigmodel.cn/api/paas/v4/chat/completions` |
 
 ## 📁 项目结构
 
 ```
 my-extension/
-├── manifest.json      # 扩展清单 (Manifest V3)
-├── background.js      # Service Worker - 处理 API 流式请求
-├── content.js         # Content Script - 悬浮球 + 侧边栏 UI
+├── manifest.json      # Manifest V3，document_start
+├── background.js      # Service Worker：流式聊天 + 自动答题 API
+├── content.js         # Content Script：悬浮球 + 侧边栏 + 自动答题
 ├── settings.html      # 设置页面
-├── settings.css       # 设置页面样式
-├── settings.js        # 设置页面逻辑
-├── icons/             # 扩展图标
-│   ├── icon16.png
-│   ├── icon48.png
-│   └── icon128.png
+├── settings.css       # 设置页样式
+├── settings.js        # 设置页逻辑
+├── icons/             # 16/48/128 px 图标
 └── README.md
 ```
 
 ## 🔒 隐私说明
 
-- API Key 存储在浏览器本地同步存储中（`chrome.storage.sync`）
-- 所有 API 请求直接从浏览器发送到配置的服务商，不经过任何第三方服务器
-- 对话历史仅在页面会话期间保留在内存中，刷新页面即清除
+- API Key 存储于 `chrome.storage.sync`，对话历史存储于 `chrome.storage.local`
+- 请求直连服务商，不经过第三方
+- 对话历史在浏览器本地持久化，可随时管理/删除
