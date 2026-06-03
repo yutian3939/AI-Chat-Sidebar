@@ -11,6 +11,19 @@ const DEFAULT_SETTINGS = {
   theme: 'system'
 };
 
+// 自动答题独立提示词（与聊天提示词分离）
+const AUTO_ANSWER_PROMPT = `你是一个严谨的作业答题助手。请仔细分析题目和所有选项后，选出唯一正确答案。
+
+【输出格式——严格遵循，不要输出任何其他内容】
+第一行：正确选项的字母（如：A）
+第二行：一句话简要解析
+
+【注意】
+- 只输出一个选项字母
+- 必须从给定的选项中选择
+- 选项字母必须在 A、B、C、D 中
+- 如果题目涉及代码或专业知识，请认真分析`;
+
 /**
  * 自动补全 API 端点路径
  * 用户可能只填了 base URL，自动补上 /v1/chat/completions 或 /chat/completions
@@ -42,6 +55,12 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'test-connection') {
     testConnection(msg.settings).then(sendResponse);
     return true; // 保持通道开放以等待异步响应
+  }
+
+  // 自动答题：逐题请求 AI 解答
+  if (msg.type === 'answer-question') {
+    answerSingleQuestion(msg.question, msg.options).then(sendResponse);
+    return true;
   }
 });
 
@@ -176,5 +195,80 @@ async function testConnection(settings) {
     }
   } catch (err) {
     return { success: false, error: err.message };
+  }
+}
+
+// ---- 单题解答（非流式，用于自动答题） ----
+async function answerSingleQuestion(question, options) {
+  try {
+    const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
+    const settings = { ...DEFAULT_SETTINGS, ...stored };
+
+    if (!settings.apiKey) {
+      return { error: '请先在设置中配置 API Key' };
+    }
+
+    const endpoint = normalizeEndpoint(settings.apiEndpoint);
+
+    // 构建选项文本
+    const optionsText = options
+      .map(o => `${o.letter}. ${o.text}`)
+      .join('\n');
+
+    const messages = [
+      { role: 'system', content: AUTO_ANSWER_PROMPT },
+      { role: 'user', content: `题目：${question}\n\n选项：\n${optionsText}` }
+    ];
+
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.apiKey}`
+      },
+      body: JSON.stringify({
+        model: settings.model,
+        messages,
+        max_tokens: 300,
+        temperature: 0.1
+      })
+    });
+
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      return { error: `API 错误 (${res.status}): ${text || res.statusText}` };
+    }
+
+    const data = await res.json();
+    const content = data.choices?.[0]?.message?.content || '';
+
+    // 解析 AI 回复：第一行是答案字母，第二行是解析
+    const lines = content.trim().split('\n').filter(l => l.trim());
+    let letter = '';
+    let reason = '';
+
+    // 尝试从第一行提取字母 [A-D]
+    const letterMatch = lines[0]?.match(/[A-D]/);
+    if (letterMatch) {
+      letter = letterMatch[0];
+    }
+    // 如果第一行没找到，尝试在整个回复中找
+    if (!letter) {
+      const globalMatch = content.match(/答案[：:]\s*([A-D])/);
+      if (globalMatch) letter = globalMatch[1];
+    }
+    if (!letter) {
+      // 最后尝试匹配任意孤单的 [A-D] 字母
+      const fallback = content.match(/^[A-D]$/m);
+      if (fallback) letter = fallback[0];
+    }
+
+    reason = lines.slice(1).join(' ').trim() ||
+             lines[0]?.replace(/^[A-D][.、，,。\s]*/, '').trim() ||
+             '';
+
+    return { letter, reason: reason.slice(0, 100) };
+  } catch (err) {
+    return { error: err.message };
   }
 }

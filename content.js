@@ -55,10 +55,10 @@
     /* ---- 悬浮按钮 ---- */
     #fab {
       position: fixed;
-      right: 16px;
-      width: 56px;
-      height: 56px;
-      border-radius: 16px;
+      right: 12px;
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
       background: var(--md-primary);
       color: var(--md-on-primary);
       border: none;
@@ -74,9 +74,9 @@
       touch-action: none;
     }
     #fab:hover { box-shadow: var(--md-elevation3); }
-    #fab:active { border-radius: 20px; }
-    #fab svg { width: 28px; height: 28px; fill: currentColor; pointer-events: none; }
-    #fab.open { right: 416px; }
+    #fab:active { border-radius: 12px; }
+    #fab svg { width: 18px; height: 18px; fill: currentColor; pointer-events: none; }
+    #fab.open { right: 412px; }
 
     /* ---- 侧边栏 ---- */
     #sidebar {
@@ -260,6 +260,101 @@
       font-size: 13px; border-left: 3px solid var(--md-error);
     }
     :host([data-theme="dark"]) .err { background: rgba(242,184,182,.12); }
+
+    /* ---- 自动答题 ---- */
+    .auto-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 16px 0 16px; background: var(--md-surface-container-low);
+    }
+    .auto-btn {
+      position: relative; overflow: hidden;
+      display: flex; align-items: center; gap: 6px;
+      padding: 7px 18px; border-radius: 20px;
+      border: 1px solid var(--md-primary);
+      background: var(--md-primary-container);
+      color: var(--md-on-primary-container);
+      font-size: 13px; font-weight: 600; cursor: pointer;
+      font-family: inherit; transition: all .2s;
+      user-select: none; -webkit-user-select: none;
+      touch-action: manipulation;
+    }
+    .auto-btn:hover { filter: brightness(1.05); }
+    .auto-btn:disabled { opacity: .5; cursor: not-allowed; filter: none; }
+    .auto-btn svg { width: 18px; height: 18px; fill: currentColor; position: relative; z-index: 1; }
+    .auto-btn-text { position: relative; z-index: 1; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+    .auto-btn-fill {
+      position: absolute; left: 0; top: 0; bottom: 0;
+      background: var(--md-primary); opacity: .2;
+      transition: width .35s ease;
+      border-radius: 20px 0 0 20px;
+      z-index: 0;
+    }
+    .auto-btn.paused .auto-btn-fill { opacity: .35; animation: pulse-fill 1.5s ease infinite; }
+    @keyframes pulse-fill { 0%,100% { opacity: .2; } 50% { opacity: .4; } }
+    .auto-status {
+      font-size: 13px; color: var(--md-on-surface-variant); flex: 1;
+    }
+    .auto-status .done { color: #2E7D32; }
+    :host([data-theme="dark"]) .auto-status .done { color: #81C784; }
+
+    .auto-results {
+      margin: 0; background: var(--md-surface-container);
+      border-radius: 14px; border: 1px solid var(--md-outline-variant);
+      overflow: hidden; animation: fadeUp .3s ease;
+    }
+    .auto-results-head {
+      display: flex; align-items: center; gap: 8px;
+      padding: 10px 14px; cursor: pointer;
+      font-size: 14px; font-weight: 500; color: var(--md-on-surface);
+      transition: background .2s; user-select: none;
+    }
+    .auto-results-head:hover { background: var(--md-surface-container-high); }
+    .auto-results-head .arr {
+      transition: transform .25s; font-size: 12px; color: var(--md-outline);
+      display: inline-block;
+    }
+    .auto-results-head .arr.fold { transform: rotate(-90deg); }
+    .auto-results-body {
+      padding: 0 14px 10px; max-height: 300px; overflow-y: auto;
+      scroll-behavior: smooth;
+    }
+    .auto-results-body::-webkit-scrollbar { width: 4px; }
+    .auto-results-body::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 2px; }
+    .auto-results-body.hidden { display: none; }
+    .auto-item {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 8px 0; border-bottom: 1px solid var(--md-outline-variant);
+      font-size: 13px;
+    }
+    .auto-item:last-child { border-bottom: none; }
+    .auto-item-num {
+      font-weight: 600; color: var(--md-primary); min-width: 44px; flex-shrink: 0;
+    }
+    .auto-item-body { flex: 1; min-width: 0; }
+    .auto-item-answer {
+      display: flex; align-items: center; gap: 8px; margin-bottom: 2px;
+    }
+    .auto-item-letter {
+      background: var(--md-primary-container); color: var(--md-on-primary-container);
+      padding: 1px 14px; border-radius: 10px; font-weight: 700; font-size: 14px;
+    }
+    .auto-item-reason {
+      color: var(--md-on-surface-variant); font-size: 12px; line-height: 1.5;
+      word-break: break-all;
+    }
+    .auto-item-loading {
+      display: flex; align-items: center; gap: 6px; color: var(--md-outline);
+    }
+    .auto-item-loading .dots-sm { display: flex; gap: 3px; }
+    .auto-item-loading .dots-sm span {
+      width: 5px; height: 5px; border-radius: 50%;
+      background: var(--md-primary); opacity: .5;
+      animation: bounce .6s infinite alternate;
+    }
+    .auto-item-loading .dots-sm span:nth-child(2) { animation-delay: .2s; }
+    .auto-item-loading .dots-sm span:nth-child(3) { animation-delay: .4s; }
+    .auto-item-error { color: var(--md-error); font-size: 12px; }
+    .auto-item-done { color: var(--md-primary); font-size: 12px; }
   `;
 
   // ======================== 状态 ========================
@@ -270,6 +365,19 @@
   let fabY = 60;
   let dragState = null;
   let themePref = 'system';
+  let isAutoAnswering = false;
+  let isAutoAnswerPaused = false;
+  let autoAnswerAbort = false;
+  let autoAnswerQueue = [];
+  let $autoResults = null;
+  let $autoBtn = null;
+  let $autoStatus = null;
+  let $autoRow = null;
+  let $autoBtnFill = null;
+  let $autoBtnText = null;
+  let isHomework = false;
+  let longPressTimer = null;
+  let longPressTriggered = false;
 
   // ======================== 创建 Shadow DOM ========================
   const host = document.createElement('div');
@@ -303,6 +411,7 @@
   const ICON_SEND = `<svg viewBox="0 0 24 24"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
   const ICON_SETTINGS = `<svg viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.49.49 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.48.48 0 00-.48-.41h-3.84a.48.48 0 00-.48.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.49.49 0 00-.59.22L2.74 8.87a.48.48 0 00.12.61l2.03 1.58c-.05.3-.07.62-.07.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.26.41.48.41h3.84c.24 0 .44-.17.48-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6A3.6 3.6 0 1112 8.4a3.6 3.6 0 010 7.2z"/></svg>`;
   const ICON_CLEAR = `<svg viewBox="0 0 24 24"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>`;
+  const ICON_AUTO = `<svg viewBox="0 0 24 24"><path d="M21 10.12h-6.78l2.74-2.82c-2.73-2.7-7.15-2.8-9.88-.1-2.73 2.71-2.73 7.08 0 9.79s7.15 2.71 9.88 0C18.32 15.65 19 14.08 19 12.1h2c0 1.98-.88 4.55-2.64 6.29-3.51 3.48-9.21 3.48-12.72 0-3.5-3.47-3.53-9.11-.02-12.58s9.14-3.47 12.65 0L21 3v7.12zM12.5 8v4.25l3.5 2.08-.72 1.21L11 13V8h1.5z"/></svg>`;
 
   // ======================== 构建 DOM ========================
   const style = document.createElement('style');
@@ -334,7 +443,14 @@
         <p>点击右下角悬浮球开始对话<br>首次使用请先前往设置配置 API</p>
       </div>
     </div>
-    <div class="input-area">
+    <div class="auto-row" id="auto-row" style="display:none">
+      <button class="auto-btn" id="btn-auto" title="自动答题">
+        <div class="auto-btn-fill" id="auto-btn-fill" style="width:0%"></div>
+        <span class="auto-btn-text" id="auto-btn-text">${ICON_AUTO}自动答题</span>
+      </button>
+      <span class="auto-status" id="auto-status"></span>
+    </div>
+    <div class="input-area" id="input-area">
       <div class="input-wrap">
         <textarea id="input" placeholder="输入消息… (Enter 发送, Shift+Enter 换行)" rows="1"></textarea>
       </div>
@@ -350,6 +466,11 @@
   const $messages = shadow.getElementById('messages');
   const $input = shadow.getElementById('input');
   const $sendBtn = shadow.getElementById('btn-send');
+  $autoBtn = shadow.getElementById('btn-auto');
+  $autoStatus = shadow.getElementById('auto-status');
+  $autoRow = shadow.getElementById('auto-row');
+  $autoBtnFill = shadow.getElementById('auto-btn-fill');
+  $autoBtnText = shadow.getElementById('auto-btn-text');
 
   // ======================== 事件绑定 ========================
 
@@ -390,6 +511,26 @@
 
   shadow.getElementById('btn-clear').addEventListener('click', clearChat);
 
+  // 自动答题按钮：点击 = 开始/暂停/恢复，长按(800ms) = 结束
+  $autoBtn.addEventListener('pointerdown', (e) => {
+    longPressTriggered = false;
+    longPressTimer = setTimeout(() => {
+      longPressTriggered = true;
+      stopAutoAnswer();
+      $autoBtn.classList.add('paused');
+      setTimeout(() => $autoBtn.classList.remove('paused'), 600);
+    }, 800);
+  });
+  $autoBtn.addEventListener('pointerup', () => {
+    clearTimeout(longPressTimer);
+    if (!longPressTriggered) {
+      startAutoAnswer();
+    }
+  });
+  $autoBtn.addEventListener('pointerleave', () => {
+    clearTimeout(longPressTimer);
+  });
+
   // -- 输入框 --
   $input.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -419,6 +560,10 @@
     sidebar.classList.toggle('open', sidebarOpen);
     fab.classList.toggle('open', sidebarOpen);
     if (sidebarOpen) {
+      // 检测是否为作业页面，显示/隐藏自动答题按钮
+      isHomework = !!document.querySelector('.questionLi[typename="单选题"]');
+      $autoRow.style.display = isHomework ? 'flex' : 'none';
+      if (isHomework) $autoStatus.textContent = '';
       setTimeout(() => $input.focus(), 320);
     }
   }
@@ -433,6 +578,7 @@
   function clearChat() {
     chatHistory = [];
     $messages.innerHTML = '';
+    // 重新创建欢迎页
     const wel = document.createElement('div');
     wel.className = 'welcome';
     wel.id = 'welcome';
@@ -442,6 +588,8 @@
       <p>输入消息开始对话<br>首次使用请先前往设置配置 API</p>
     `;
     $messages.appendChild(wel);
+    // 清除自动答题结果
+    $autoResults = null;
   }
 
   function timeStr() {
@@ -676,6 +824,371 @@
       .replace(/\son\w+\s*=\s*"[^"]*"/gi, '')
       .replace(/\son\w+\s*=\s*'[^']*'/gi, '')
       .replace(/javascript\s*:/gi, '');
+  }
+
+  // ======================== 自动答题 ========================
+
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  /**
+   * 点击页面上的「暂时保存」按钮，防止答案丢失
+   */
+  function clickSaveButton() {
+    try {
+      // 查找「暂时保存」链接
+      const saveLink = document.querySelector('a[tabindex="0"]');
+      if (saveLink && saveLink.textContent.includes('暂时保存')) {
+        saveLink.click();
+        return true;
+      }
+      // 备选：调用页面 saveWork 函数
+      if (typeof window.saveWork === 'function') {
+        window.saveWork();
+        return true;
+      }
+      return false;
+    } catch { return false; }
+  }
+
+  /**
+   * 从页面提取所有单选题
+   */
+  function extractQuestions() {
+    const questions = [];
+    const qDivs = document.querySelectorAll('.questionLi[typename="单选题"]');
+    qDivs.forEach((qDiv, idx) => {
+      const qid = qDiv.getAttribute('data');
+      // 检查是否已作答（hidden input 有值）
+      const answerInput = document.getElementById(`answer${qid}`);
+      const answered = answerInput ? !!answerInput.value.trim() : false;
+
+      // 获取题目文本
+      const h3 = qDiv.querySelector('.mark_name');
+      let questionText = '';
+      if (h3) {
+        questionText = h3.textContent
+          .replace(/^\d+\.\s*/, '')
+          .replace(/\(单选题\)/g, '')
+          .trim();
+      }
+
+      // 获取选项
+      const options = [];
+      qDiv.querySelectorAll('.answerBg[role="radio"]').forEach(opt => {
+        const letterEl = opt.querySelector('.num_option');
+        const textEl = opt.querySelector('.answer_p');
+        if (letterEl && textEl) {
+          const letter = letterEl.getAttribute('data');
+          const text = textEl.textContent.trim();
+          if (letter && text) {
+            options.push({ letter, text });
+          }
+        }
+      });
+
+      if (questionText && options.length > 0) {
+        questions.push({
+          qnum: idx + 1,
+          qid,
+          question: questionText,
+          options,
+          answered
+        });
+      }
+    });
+    return questions;
+  }
+
+  /**
+   * 点击页面上的选项来填写答案
+   */
+  function fillAnswer(qid, letter) {
+    const choiceSpan = document.querySelector(`.choice${qid}[data="${letter}"]`);
+    if (choiceSpan) {
+      const answerBg = choiceSpan.closest('.answerBg');
+      if (answerBg) { answerBg.click(); answerBg.focus(); return true; }
+    }
+    const answerBg = document.querySelector(`.answerBg[qid="${qid}"] .num_option[data="${letter}"]`);
+    if (answerBg) {
+      const parent = answerBg.closest('.answerBg');
+      if (parent) { parent.click(); parent.focus(); return true; }
+    }
+    return false;
+  }
+
+  /**
+   * 滚动到指定题目在页面中的位置
+   */
+  function scrollToQuestion(qid) {
+    const qEl = document.getElementById(`question${qid}`);
+    if (qEl) qEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  /**
+   * 在消息区域创建/获取自动答题结果面板
+   */
+  function ensureAutoResults() {
+    if ($autoResults) {
+      if ($autoResults.style.display === 'none') $autoResults.style.display = '';
+      return $autoResults;
+    }
+    const wel = shadow.getElementById('welcome');
+    if (wel) wel.remove();
+
+    $autoResults = document.createElement('div');
+    $autoResults.className = 'auto-results';
+    $autoResults.id = 'auto-results';
+    $autoResults.innerHTML = `
+      <div class="auto-results-head" id="auto-results-head">
+        <span class="arr" id="auto-arr">▶</span>
+        <span id="auto-results-title">答题结果</span>
+        <span style="flex:1"></span>
+        <span id="auto-results-summary" style="font-size:12px;color:var(--md-outline)"></span>
+      </div>
+      <div class="auto-results-body hidden" id="auto-results-body"></div>
+    `;
+    $messages.appendChild($autoResults);
+
+    shadow.getElementById('auto-results-head').addEventListener('click', () => {
+      const body = shadow.getElementById('auto-results-body');
+      const arr = shadow.getElementById('auto-arr');
+      const hidden = body.classList.toggle('hidden');
+      arr.classList.toggle('fold', hidden);
+    });
+
+    scrollToBottom();
+    return $autoResults;
+  }
+
+  /**
+   * 更新单个题目的显示状态
+   */
+  function updateAutoItem(qnum, status, data) {
+    const body = shadow.getElementById('auto-results-body');
+    if (!body) return;
+
+    let item = body.querySelector(`[data-qnum="${qnum}"]`);
+    if (!item) {
+      item = document.createElement('div');
+      item.className = 'auto-item';
+      item.setAttribute('data-qnum', qnum);
+      item.innerHTML = `<div class="auto-item-num">第${qnum}题</div><div class="auto-item-body"></div>`;
+      body.appendChild(item);
+    }
+
+    const itemBody = item.querySelector('.auto-item-body');
+    if (status === 'loading') {
+      itemBody.innerHTML = '<div class="auto-item-loading">正在作答<div class="dots-sm"><span></span><span></span><span></span></div></div>';
+    } else if (status === 'done') {
+      itemBody.innerHTML = `
+        <div class="auto-item-answer">
+          <span class="auto-item-letter">${escapeHtml(data.letter)}</span>
+          <span class="auto-item-done">已填写 ✓</span>
+        </div>
+        ${data.reason ? `<div class="auto-item-reason">${escapeHtml(data.reason)}</div>` : ''}
+      `;
+    } else if (status === 'error') {
+      itemBody.innerHTML = `<div class="auto-item-error">${escapeHtml(data.error || '请求失败')}</div>`;
+    } else if (status === 'skipped') {
+      itemBody.innerHTML = '<div class="auto-item-reason">已作答，跳过</div>';
+    }
+  }
+
+  /**
+   * 更新按钮进度条填充
+   */
+  function updateButtonProgress(current, total) {
+    if ($autoBtnFill) {
+      const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+      $autoBtnFill.style.width = pct + '%';
+    }
+  }
+
+  /**
+   * 更新按钮文字和状态栏
+   */
+  function updateAutoStatus(current, total) {
+    if (isAutoAnswerPaused) {
+      $autoBtnText.innerHTML = '▶ 继续答题';
+      $autoStatus.innerHTML = `<span style="color:var(--md-outline)">已暂停 (${current}/${total}) — 点击继续</span>`;
+      return;
+    }
+
+    if (autoAnswerAbort) {
+      $autoBtnText.innerHTML = `${ICON_AUTO}自动答题`;
+      $autoStatus.innerHTML = `<span class="done">已结束 (${current}/${total}) ✓</span>`;
+      $autoBtn.disabled = false;
+      isAutoAnswering = false;
+      updateButtonProgress(current, total);
+      return;
+    }
+
+    if (current >= total) {
+      $autoBtnText.innerHTML = `${ICON_AUTO}自动答题`;
+      $autoStatus.innerHTML = `<span class="done">全部完成 ✓ (${total}/${total})</span>`;
+      $autoBtn.disabled = false;
+      isAutoAnswering = false;
+      updateButtonProgress(current, total);
+
+      // 更新结果面板
+      const summary = shadow.getElementById('auto-results-summary');
+      if (summary) {
+        const doneCount = shadow.getElementById('auto-results-body')?.querySelectorAll('.auto-item-letter').length || 0;
+        summary.textContent = `${doneCount}/${total} 题`;
+      }
+      // 展开结果面板
+      const body = shadow.getElementById('auto-results-body');
+      const arr = shadow.getElementById('auto-arr');
+      if (body && body.classList.contains('hidden')) {
+        body.classList.remove('hidden');
+        arr.classList.remove('fold');
+      }
+      // 自动保存
+      clickSaveButton();
+    } else {
+      $autoBtnText.innerHTML = `${current}/${total}`;
+      $autoStatus.textContent = `正在作答: ${current}/${total}`;
+      updateButtonProgress(current, total);
+    }
+  }
+
+  /**
+   * 停止自动答题（长按触发）
+   */
+  function stopAutoAnswer() {
+    if (!isAutoAnswering) return;
+    autoAnswerAbort = true;
+    isAutoAnswerPaused = false;
+    clickSaveButton();
+  }
+
+  /**
+   * 主流程：开始自动答题 / 暂停 / 恢复
+   * 点击：未开始→开始 | 进行中→暂停 | 暂停中→恢复
+   * 长按(800ms)：结束
+   */
+  async function startAutoAnswer() {
+    // === 暂停中 → 恢复 ===
+    if (isAutoAnswerPaused) {
+      isAutoAnswerPaused = false;
+      updateAutoStatus(
+        autoAnswerQueue.filter(q => {
+          const inp = document.getElementById(`answer${q.qid}`);
+          return inp && inp.value.trim();
+        }).length + (isAutoAnswering ? 0 : 0),
+        autoAnswerQueue.length
+      );
+      return;
+    }
+
+    // === 进行中 → 暂停 ===
+    if (isAutoAnswering && !isAutoAnswerPaused) {
+      isAutoAnswerPaused = true;
+      updateAutoStatus(0, 0); // will be recalculated below
+      // 计算已完成的
+      let doneCount = 0;
+      if (autoAnswerQueue.length > 0) {
+        doneCount = autoAnswerQueue.filter(q => {
+          const inp = document.getElementById(`answer${q.qid}`);
+          return inp && inp.value.trim();
+        }).length;
+      }
+      $autoBtnText.innerHTML = '▶ 继续答题';
+      $autoStatus.innerHTML = `<span style="color:var(--md-outline)">已暂停 (${doneCount}/${autoAnswerQueue.length}) — 点击继续</span>`;
+      updateButtonProgress(doneCount, autoAnswerQueue.length);
+      clickSaveButton();
+      return;
+    }
+
+    // === 新开始 ===
+    if (!isHomework) return;
+
+    const allQuestions = extractQuestions();
+    const unanswered = allQuestions.filter(q => !q.answered);
+
+    if (unanswered.length === 0) {
+      $autoStatus.textContent = allQuestions.length > 0 ? '所有题目已作答完成' : '未检测到题目';
+      return;
+    }
+
+    const settings = await chrome.storage.sync.get(['apiKey']);
+    if (!settings.apiKey) {
+      $autoStatus.textContent = '请先在设置中配置 API Key';
+      return;
+    }
+
+    isAutoAnswering = true;
+    isAutoAnswerPaused = false;
+    autoAnswerAbort = false;
+    $autoBtn.disabled = false;
+    autoAnswerQueue = unanswered;
+
+    ensureAutoResults();
+    const totalAll = allQuestions.length;
+    const title = shadow.getElementById('auto-results-title');
+    if (title) title.textContent = `答题结果 (共${totalAll}题)`;
+
+    // 标记已答题目
+    allQuestions.forEach(q => {
+      if (q.answered) updateAutoItem(q.qnum, 'skipped');
+    });
+
+    let completedCount = allQuestions.filter(q => q.answered).length;
+
+    for (let i = 0; i < unanswered.length; i++) {
+      // 检查是否被终止
+      if (autoAnswerAbort) {
+        updateAutoStatus(completedCount, totalAll);
+        return;
+      }
+
+      // 等待暂停恢复
+      while (isAutoAnswerPaused && !autoAnswerAbort) {
+        await sleep(300);
+      }
+      if (autoAnswerAbort) {
+        updateAutoStatus(completedCount, totalAll);
+        return;
+      }
+
+      const q = unanswered[i];
+      updateAutoItem(q.qnum, 'loading');
+      updateAutoStatus(completedCount, totalAll);
+      scrollToQuestion(q.qid);
+
+      try {
+        const result = await chrome.runtime.sendMessage({
+          type: 'answer-question',
+          question: q.question,
+          options: q.options
+        });
+
+        if (autoAnswerAbort) {
+          updateAutoStatus(completedCount, totalAll);
+          return;
+        }
+
+        if (result.letter) {
+          const filled = fillAnswer(q.qid, result.letter);
+          updateAutoItem(q.qnum, 'done', {
+            letter: result.letter,
+            reason: (filled ? '' : '⚠ 未找到选项 ') + (result.reason || '')
+          });
+        } else if (result.error) {
+          updateAutoItem(q.qnum, 'error', { error: result.error });
+        } else {
+          updateAutoItem(q.qnum, 'error', { error: 'AI 返回格式异常' });
+        }
+      } catch (err) {
+        updateAutoItem(q.qnum, 'error', { error: err.message });
+      }
+
+      completedCount++;
+      // 每 3 题自动保存一次
+      if (completedCount % 3 === 0) clickSaveButton();
+    }
+
+    updateAutoStatus(totalAll, totalAll);
   }
 
   // ======================== 挂载 ========================
