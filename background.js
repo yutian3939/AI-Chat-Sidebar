@@ -87,13 +87,62 @@ chrome.runtime.onConnect.addListener((port) => {
         // ✅ 自动补全端点路径
         settings.apiEndpoint = normalizeEndpoint(settings.apiEndpoint);
 
+        const visionMode = msg.visionMode || 'none';
+
+        // 视觉模型转述：先读图片数据和外挂模型配置
+        const visionSettings = visionMode === 'vision'
+          ? await loadVisionSettings() : null;
+
         const messages = [];
         if (settings.systemPrompt) {
           messages.push({ role: 'system', content: settings.systemPrompt });
         }
-        messages.push(...msg.history);
 
-        await streamChat(settings, messages, port);
+        let hasMultimodal = false;
+        for (const m of msg.history) {
+          const hasImgs = !!(m._images && m._images.length > 0);
+          const storageKey = m._images?.[0]?.storageKey;
+          const stored = storageKey ? await chrome.storage.local.get(storageKey) : {};
+          const dataUrls = stored[storageKey] || [];
+
+          // 构建该条消息的最终文本 (含文件内容)
+          let fullMsgText = m.content || '';
+          if (m._attachments && m._attachments.length > 0) {
+            const fileTexts = [];
+            m._attachments.forEach(a => {
+              if (!(a.type || '').startsWith('image/') && a.text) {
+                fileTexts.push('[文件内容: ' + a.name + ']\n' + a.text);
+              }
+            });
+            if (fileTexts.length > 0) {
+              fullMsgText = fileTexts.join('\n\n') + (fullMsgText ? '\n\n---\n' + fullMsgText : '');
+            }
+          }
+
+          if (hasImgs && visionMode === 'main') {
+            hasMultimodal = true;
+            const contentArr = [];
+            dataUrls.forEach(url => {
+              contentArr.push({ type: 'image_url', image_url: { url } });
+            });
+            contentArr.push({ type: 'text', text: fullMsgText || '请描述这张图片' });
+            messages.push({ role: m.role, content: contentArr });
+            if (storageKey) chrome.storage.local.remove(storageKey);
+          } else if (hasImgs && visionMode === 'vision' && visionSettings) {
+            hasMultimodal = false;
+            const desc = await describeImages(visionSettings, dataUrls, fullMsgText);
+            messages.push({ role: m.role, content: desc });
+            if (storageKey) chrome.storage.local.remove(storageKey);
+          } else {
+            messages.push({ role: m.role, content: fullMsgText });
+          }
+        }
+
+        if (hasMultimodal) {
+          await chatCompletion(settings, messages, port);
+        } else {
+          await streamChat(settings, messages, port);
+        }
       } catch (err) {
         port.postMessage({ type: 'error', content: err.message || '发生未知错误' });
         port.postMessage({ type: 'done' });
@@ -132,6 +181,7 @@ async function streamChat(settings, messages, port) {
   const decoder = new TextDecoder();
   let buffer = '';
   let doneSent = false;
+  let chunkSent = false;
 
   try {
     while (true) {
@@ -155,8 +205,16 @@ async function streamChat(settings, messages, port) {
 
         try {
           const json = JSON.parse(data);
+          // 检测 SSE 流内错误 (如 OpenAI 返回的 error)
+          if (json.error) {
+            port.postMessage({ type: 'error', content: json.error.message || JSON.stringify(json.error) });
+            port.postMessage({ type: 'done' });
+            doneSent = true;
+            return;
+          }
           const content = json.choices?.[0]?.delta?.content;
           if (content) {
+            chunkSent = true;
             port.postMessage({ type: 'chunk', content });
           }
         } catch {
@@ -169,10 +227,106 @@ async function streamChat(settings, messages, port) {
       port.postMessage({ type: 'error', content: err.message });
     }
   } finally {
+    // 流结束但未发送任何 chunk 也没有错误 → API 返回了空内容
+    if (!doneSent && !chunkSent) {
+      port.postMessage({ type: 'error', content: 'API 返回了空响应，请检查模型是否支持多模态输入（如 gpt-4o）' });
+    }
     if (!doneSent) {
       port.postMessage({ type: 'done' });
     }
   }
+}
+
+// ---- 非流式调用 (用于多模态，避免 Qwen 等兼容性问题) ----
+async function chatCompletion(settings, messages, port) {
+  try {
+    const body = JSON.stringify({ model: settings.model, messages, stream: false });
+
+    const response = await fetch(settings.apiEndpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${settings.apiKey}`
+      },
+      body
+    });
+
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      port.postMessage({ type: 'error', content: `API 错误 (${response.status}): ${text || response.statusText}` });
+      port.postMessage({ type: 'done' });
+      return;
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content;
+
+    if (content) {
+      port.postMessage({ type: 'chunk', content });
+    } else {
+      port.postMessage({ type: 'error', content: 'API 返回空内容，请检查模型是否支持视觉输入' });
+    }
+    port.postMessage({ type: 'done' });
+  } catch (err) {
+    port.postMessage({ type: 'error', content: err.message });
+    port.postMessage({ type: 'done' });
+  }
+}
+
+// ---- 视觉模型转述：加载配置 ----
+async function loadVisionSettings() {
+  const data = await chrome.storage.local.get([
+    'visionModelProvider', 'visionModel', 'visionPrompt', 'providers'
+  ]);
+  const providers = data.providers || [];
+  const provider = providers.find(p => p.id === data.visionModelProvider) || {};
+  return {
+    baseUrl: provider.baseUrl || '',
+    apiKey: provider.apiKey || '',
+    model: data.visionModel || '',
+    prompt: data.visionPrompt || '请简洁描述图片内容。'
+  };
+}
+
+// ---- 视觉模型转述：调视觉模型获取文字描述 ----
+async function describeImages(vs, dataUrls, userText) {
+  if (!vs.baseUrl || !vs.apiKey || !vs.model) {
+    throw new Error('视觉模型未配置，请在设置中选择视觉模型');
+  }
+  const endpoint = normalizeEndpoint(vs.baseUrl);
+  const contentArr = [];
+  dataUrls.forEach(url => {
+    contentArr.push({ type: 'image_url', image_url: { url } });
+  });
+  contentArr.push({ type: 'text', text: vs.prompt });
+
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${vs.apiKey}`
+    },
+    body: JSON.stringify({
+      model: vs.model,
+      messages: [
+        { role: 'user', content: contentArr }
+      ],
+      max_tokens: 500
+    })
+  });
+
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(`视觉模型请求失败 (${res.status}): ${text || res.statusText}`);
+  }
+
+  const data = await res.json();
+  const desc = data.choices?.[0]?.message?.content || '';
+  if (!desc) throw new Error('视觉模型返回空内容');
+
+  // 组合：视觉描述 + 用户原文
+  const prefix = '【以下是 AI 对图片的描述】\n' + desc;
+  return userText ? prefix + '\n\n---\n用户问题：' + userText : prefix + '\n\n请根据以上图片描述回答问题。';
 }
 
 // ---- 测试 API 连接 ----

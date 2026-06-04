@@ -267,13 +267,86 @@
     await loadProvidersFromStorage();
     renderProviderSelect();
     fillProviderFields();
-    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme']);
+    renderCurrentModelSelect();
+    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt']);
     var C = window.__CTX__;
     C.$settingsSystemPrompt.value = data.systemPrompt || '你是一个有帮助的AI助手。';
     C.$settingsTheme.value = data.theme || 'system';
     C.colorScheme = data.colorScheme || 'purple';
+    C.visionMode = data.visionMode || 'none';
+    C.visionModelProvider = data.visionModelProvider || 'openai';
+    C.visionModel = data.visionModel || '';
+    C.$settingsVisionMode.value = C.visionMode;
+    C.$settingsVisionPrompt.value = data.visionPrompt || '请简洁描述图片内容。';
     renderColorSwatches();
+    renderVisionFields();
     hideSettingsStatus();
+  }
+
+  // ======================== 视觉模型 ========================
+
+  function renderVisionFields() {
+    var C = window.__CTX__;
+    var show = C.visionMode === 'vision';
+    C.$visionModelFields.style.display = show ? 'block' : 'none';
+    if (show) renderVisionModelSelect();
+  }
+
+  function renderVisionModelSelect() {
+    var C = window.__CTX__;
+    if (!C.$settingsVisionModel) return;
+    var all = getAllProviders();
+    var withKey = [];
+    all.forEach(function(p) { if (p.apiKey && p.models.length > 0) withKey.push(p); });
+    if (withKey.length === 0) {
+      C.$settingsVisionModel.innerHTML = '<option value="">请先配置供应商的 API Key 和模型</option>';
+      return;
+    }
+    var html = '';
+    withKey.forEach(function(p) {
+      html += '<optgroup label="' + p.name + '">';
+      p.models.forEach(function(m) {
+        var val = p.id + '::' + m;
+        var sel = (p.id === C.visionModelProvider && m === C.visionModel) ? ' selected' : '';
+        html += '<option value="' + val + '"' + sel + '>' + m + '</option>';
+      });
+      html += '</optgroup>';
+    });
+    C.$settingsVisionModel.innerHTML = html;
+  }
+
+  async function saveVisionSettings() {
+    var C = window.__CTX__;
+    var visionParts = (C.$settingsVisionModel.value || '').split('::');
+    C.visionMode = C.$settingsVisionMode.value;
+    C.visionModelProvider = visionParts[0] || '';
+    C.visionModel = visionParts[1] || '';
+    await chrome.storage.local.set({
+      visionMode: C.visionMode,
+      visionModelProvider: C.visionModelProvider,
+      visionModel: C.visionModel
+    });
+  }
+
+  async function testVisionConnection() {
+    var C = window.__CTX__;
+    var visionParts = (C.$settingsVisionModel.value || '').split('::');
+    var provider = visionParts[0] ? findProvider(visionParts[0]) : null;
+    if (!provider || !provider.apiKey) { showSettingsStatus('请先在供应商中填写 API Key', 'error'); return; }
+    if (!C.$btnVisionTest) return;
+    C.$btnVisionTest.disabled = true;
+    var origText = C.$btnVisionTest.textContent;
+    C.$btnVisionTest.textContent = '测试中...';
+    try {
+      var result = await chrome.runtime.sendMessage({ type: 'test-connection', settings: { apiEndpoint: provider.baseUrl, apiKey: provider.apiKey, model: visionParts[1] } });
+      if (result.success) showSettingsStatus('视觉模型连接成功', 'success');
+      else showSettingsStatus('连接失败: ' + result.error, 'error');
+    } catch (err) {
+      showSettingsStatus('连接失败: ' + err.message, 'error');
+    } finally {
+      C.$btnVisionTest.disabled = false;
+      C.$btnVisionTest.textContent = origText;
+    }
   }
 
   // ======================== 主题颜色选择器 ========================
@@ -369,6 +442,21 @@
     C.$btnSettingsSave.addEventListener('click', saveProviderData);
     C.$btnDeleteProvider.addEventListener('click', deleteProvider);
     C.$btnSettingsTest.addEventListener('click', testConnectionFromPanel);
+
+    // 视觉模型事件
+    C.$settingsVisionMode.addEventListener('change', function() {
+      C.visionMode = C.$settingsVisionMode.value;
+      renderVisionFields();
+      saveVisionSettings();
+    });
+    C.$settingsVisionModel.addEventListener('change', saveVisionSettings);
+    C.$settingsVisionPrompt.addEventListener('blur', function() {
+      var val = C.$settingsVisionPrompt.value.trim();
+      chrome.storage.local.set({ visionPrompt: val });
+    });
+    if (C.$btnVisionTest) {
+      C.$btnVisionTest.addEventListener('click', testVisionConnection);
+    }
   }
 
   // ======================== 导出 ========================
@@ -379,7 +467,8 @@
     closeSettingsPanel: closeSettingsPanel,
     loadSettingsToPanel: loadSettingsToPanel,
     loadProvidersFromStorage: loadProvidersFromStorage,
-    syncActiveSettings: syncActiveSettings
+    syncActiveSettings: syncActiveSettings,
+    renderVisionFields: renderVisionFields
   };
 
 })();

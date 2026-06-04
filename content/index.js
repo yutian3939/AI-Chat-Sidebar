@@ -56,6 +56,12 @@
     editingProviderId: 'openai',
     isComposing: false,
 
+    // 视觉模型 + 附件
+    visionMode: 'none',
+    visionModelProvider: 'openai',
+    visionModel: '',
+    attachedFiles: [],
+
     // DOM 引用 (稍后填充)
     host: null, shadow: null,
     fab: null, sidebar: null, resizeHandle: null,
@@ -70,6 +76,11 @@
     $settingsSystemPrompt: null, $settingsTheme: null,
     $colorSwatches: null,
     $settingsStatus: null, $settingsProvider: null,
+    $settingsVisionMode: null, $visionModelFields: null,
+    $settingsVisionModel: null, $settingsVisionPrompt: null,
+    $btnVisionTest: null,
+    $attachmentsList: null,
+    $btnAttach: null, $fileInput: null,
     $settingsCustomNameWrap: null, $settingsCustomName: null,
     $settingsAddModel: null, $settingsModelChips: null,
     $settingsCurrentModel: null,
@@ -130,9 +141,11 @@
     C.themePref = theme || 'system';
     applyTheme(C.themePref);
   });
-  chrome.storage.local.get('colorScheme', ({ colorScheme }) => {
-    C.colorScheme = colorScheme || 'purple';
-    // 初始应用 (此时 host 已创建但 data-theme 是初始值)
+  chrome.storage.local.get(['colorScheme', 'visionMode', 'visionModelProvider', 'visionModel'], (data) => {
+    C.colorScheme = data.colorScheme || 'purple';
+    C.visionMode = data.visionMode || 'none';
+    C.visionModelProvider = data.visionModelProvider || 'openai';
+    C.visionModel = data.visionModel || '';
     C.host.setAttribute('data-theme', getCurrentMode());
     applyColorScheme(C.colorScheme);
   });
@@ -235,19 +248,41 @@
           '</button>' +
         '</div>' +
         '<div class="settings-section">' +
-          '<h3>模型选择</h3>' +
-          // '<p class="settings-hint-sm">列出所有已填写 API Key 的供应商的模型</p>' +
+          '<h3>主模型</h3>' +
           '<div class="field"><select id="settings-current-model"></select></div>' +
-          '<div class="field">' +
-            '<label for="settings-system-prompt">系统提示词</label>' +
-            '<textarea id="settings-system-prompt" rows="3" placeholder="你是一个有帮助的AI助手。"></textarea>' +
-            // '<p class="settings-hint-sm">修改后自动保存</p>' +
-          '</div>' +
           '<div class="settings-actions">' +
             '<button class="settings-btn outline" id="btn-settings-test">' +
               '<svg viewBox="0 0 24 24"><path d="M13 3v2h-2V3H9v2H7v2h2v2H7v2h2v2H7v2h2v2h2v-2h2v2h2v-2h2v-2h-2v-2h2V9h2V7h-2V5h-2v2h-2V5h-2zm-2 8h2v2h-2v-2z"/></svg>' +
               '测试连接' +
             '</button>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label for="settings-system-prompt">系统提示词</label>' +
+            '<textarea id="settings-system-prompt" rows="3" placeholder="你是一个有帮助的AI助手。"></textarea>' +
+          '</div>' +
+        '</div>' +
+        '<div class="settings-section">' +
+          '<h3>视觉模型</h3>' +
+          '<p class="settings-hint-sm">用于处理聊天中上传的图片</p>' +
+          '<div class="field">' +
+            '<select id="settings-vision-mode">' +
+              '<option value="none">无 (忽略图片)</option>' +
+              '<option value="main">使用主模型 (需支持多模态)</option>' +
+              '<option value="vision">使用视觉模型转述</option>' +
+            '</select>' +
+          '</div>' +
+          '<div id="vision-model-fields" style="display:none">' +
+            '<div class="field"><select id="settings-vision-model"></select></div>' +
+            '<div class="settings-actions">' +
+              '<button class="settings-btn outline" id="btn-vision-test">' +
+                '<svg viewBox="0 0 24 24"><path d="M13 3v2h-2V3H9v2H7v2h2v2H7v2h2v2H7v2h2v2h2v-2h2v2h2v-2h2v-2h-2v-2h2V9h2V7h-2V5h-2v2h-2V5h-2zm-2 8h2v2h-2v-2z"/></svg>' +
+                '测试连接' +
+              '</button>' +
+            '</div>' +
+            '<div class="field">' +
+              '<label for="settings-vision-prompt">视觉系统提示词</label>' +
+              '<textarea id="settings-vision-prompt" rows="2" placeholder="请简洁描述图片内容。"></textarea>' +
+            '</div>' +
           '</div>' +
         '</div>' +
         '<div class="settings-section">' +
@@ -267,7 +302,7 @@
         '<div class="settings-status" id="settings-status"></div>' +
       '</div>' +
     '</div>' +
-    // 自动答题行
+    // 自动答题行 (在加号上方)
     '<div class="auto-row" id="auto-row" style="display:none">' +
       '<button class="auto-btn" id="btn-auto" title="自动答题">' +
         '<div class="auto-btn-fill" id="auto-btn-fill" style="width:0%"></div>' +
@@ -275,12 +310,20 @@
       '</button>' +
       '<span class="auto-status" id="auto-status"></span>' +
     '</div>' +
+    // 按钮行 (加号 + 附件文件在右边)
+    '<div class="top-row" id="top-row">' +
+      '<button class="attach-btn" id="btn-attach" title="添加图片/文件">' +
+        '<svg viewBox="0 0 24 24" width="18" height="18"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>' +
+      '</button>' +
+      '<div class="attachments-list" id="attachments-list"></div>' +
+    '</div>' +
     '<div class="input-area" id="input-area">' +
       '<div class="input-wrap">' +
         '<textarea id="input" placeholder="输入消息… (Enter 发送, Shift+Enter 换行)" rows="1"></textarea>' +
       '</div>' +
       '<button class="send-btn" id="btn-send" title="发送">' + I.SEND + '</button>' +
-    '</div>';
+    '</div>' +
+    '<input type="file" id="file-input" style="display:none" accept="image/*,.txt,.md,.json,.csv" multiple>';
   C.sidebar = sidebar;
 
   shadow.appendChild(style);
@@ -319,6 +362,14 @@
   C.$btnSettingsTest = shadow.getElementById('btn-settings-test');
   C.$btnDeleteProvider = shadow.getElementById('btn-delete-provider');
   C.$toggleKey = shadow.getElementById('settings-toggle-key');
+  C.$settingsVisionMode = shadow.getElementById('settings-vision-mode');
+  C.$visionModelFields = shadow.getElementById('vision-model-fields');
+  C.$settingsVisionModel = shadow.getElementById('settings-vision-model');
+  C.$settingsVisionPrompt = shadow.getElementById('settings-vision-prompt');
+  C.$btnVisionTest = shadow.getElementById('btn-vision-test');
+  C.$attachmentsList = shadow.getElementById('attachments-list');
+  C.$btnAttach = shadow.getElementById('btn-attach');
+  C.$fileInput = shadow.getElementById('file-input');
 
   // ======================== 侧边栏宽度 ========================
   chrome.storage.sync.get('sidebarWidth', ({ sidebarWidth: sw }) => {
@@ -385,15 +436,78 @@
   function autoResize() {
     C.$input.style.height = 'auto';
     C.$input.style.height = Math.min(C.$input.scrollHeight, 120) + 'px';
-    C.$sendBtn.disabled = !C.$input.value.trim() || C.isStreaming;
+    C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0) || C.isStreaming;
   }
   C.autoResize = autoResize;
 
   // ======================== 发送消息 ========================
-  function doSend(text) {
-    if (!text || C.isStreaming) return;
-    HP.addMessage('user', text);
-    C.chatHistory.push({ role: 'user', content: text });
+  async function doSend(text) {
+    if ((!text && C.attachedFiles.length === 0) || C.isStreaming) return;
+
+    // 构建包含附件的用户消息
+    let fullUserText = text || '';
+    const files = C.attachedFiles.slice();
+    const images = [];
+    if (files.length > 0) {
+      const parts = [];
+      files.forEach(f => {
+        if (f.type.startsWith('image/')) {
+          images.push({ dataUrl: f.dataUrl });
+          // 多模态时图片以 vision_url 发送，文字标注可选
+          if (C.visionMode !== 'main') {
+            parts.push('[图片: ' + f.name + ']');
+          }
+        } else {
+          // 文件内容通过 _attachments[].text 传给 AI，气泡只显示附件标签
+        }
+      });
+      if (parts.length > 0) {
+        fullUserText = parts.join('\n\n') + (text ? '\n\n---\n' + text : '');
+      }
+      if (images.length > 0 && !text) {
+        fullUserText = '📷 ' + files.filter(f => f.type.startsWith('image/')).map(f => f.name).join(', ');
+      } else if (files.length > 0 && !text && images.length === 0) {
+        fullUserText = '📄 ' + files.map(f => f.name).join(', ');
+      }
+    }
+
+    // 渲染用户消息 (有附件时在气泡下方追加标签/缩略图)
+    HP.addMessage('user', text || (files.length > 0 ? '📎 ' + files.map(f => f.name).join(', ') : ''));
+    if (files.length > 0) {
+      const lastBubble = C.$messages.querySelector('.msg.user:last-of-type .bubble');
+      if (lastBubble) {
+        const attachDiv = document.createElement('div');
+        attachDiv.className = 'attach-inline';
+        files.forEach(f => {
+          if (f.type.startsWith('image/')) {
+            const img = document.createElement('img');
+            img.src = f.dataUrl;
+            img.className = 'attach-inline-thumb';
+            img.title = f.name;
+            attachDiv.appendChild(img);
+          } else {
+            const chip = document.createElement('span');
+            chip.className = 'attach-hist-chip';
+            chip.textContent = '📄 ' + f.name;
+            attachDiv.appendChild(chip);
+          }
+        });
+        lastBubble.appendChild(attachDiv);
+      }
+    }
+
+    // 存聊天历史
+    // 图片 dataUrl 通过 chrome.storage.local 中转，避免 port.postMessage 序列化大体积数据崩溃
+    const imageStorageKey = '_img_' + Date.now();
+    const imageDataUrls = images.map(i => i.dataUrl);
+    if (imageDataUrls.length > 0) {
+      await chrome.storage.local.set({ [imageStorageKey]: imageDataUrls });
+    }
+    C.chatHistory.push({ role: 'user', content: fullUserText, _attachments: files.map(f => ({ name: f.name, type: f.type, text: f.text || '' })), _images: images.map((_, i) => ({ storageKey: imageStorageKey, index: i })) });
+    // 清除附件
+    C.attachedFiles = [];
+    renderAttachments();
+
     C.isStreaming = true;
     C.$sendBtn.disabled = true;
     HP.addLoading();
@@ -417,7 +531,7 @@
         HP.saveConversation();
         C.isStreaming = false;
         C.currentPort = null;
-        C.$sendBtn.disabled = !C.$input.value.trim();
+        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
       } else if (msg.type === 'done') {
         HP.removeLoading();
         if (aiBubble) {
@@ -429,7 +543,7 @@
         }
         C.isStreaming = false;
         C.currentPort = null;
-        C.$sendBtn.disabled = !C.$input.value.trim();
+        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
       }
     });
 
@@ -445,20 +559,20 @@
         }
         C.isStreaming = false;
         C.currentPort = null;
-        C.$sendBtn.disabled = !C.$input.value.trim();
+        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
       }
     });
 
-    C.currentPort.postMessage({ type: 'init', history: C.chatHistory.slice() });
+    C.currentPort.postMessage({ type: 'init', history: C.chatHistory.slice(), visionMode: C.visionMode });
   }
   C.doSend = doSend;
 
   async function sendMessage() {
     const text = C.$input.value.trim();
-    if (!text || C.isStreaming) return;
+    if ((!text && C.attachedFiles.length === 0) || C.isStreaming) return;
     C.$input.value = '';
     autoResize();
-    doSend(text);
+    await doSend(text);
   }
   C.sendMessage = sendMessage;
 
@@ -508,6 +622,71 @@
   }, true);
   C.$input.addEventListener('input', autoResize);
   C.$sendBtn.addEventListener('click', sendMessage);
+
+  // -- 附件上传 --
+  C.$btnAttach.addEventListener('click', () => {
+    C.$fileInput.click();
+  });
+  C.$fileInput.addEventListener('change', async () => {
+    const files = C.$fileInput.files;
+    if (!files || files.length === 0) return;
+    for (const file of files) {
+      if (file.size > 20 * 1024 * 1024) continue; // 跳过 >20MB
+      const isImage = file.type.startsWith('image/');
+      const entry = { name: file.name, type: file.type, dataUrl: '', text: '' };
+      if (isImage) {
+        entry.dataUrl = await readFileAsDataURL(file);
+      } else {
+        entry.text = await readFileAsText(file);
+      }
+      C.attachedFiles.push(entry);
+    }
+    renderAttachments();
+    autoResize();
+    C.$fileInput.value = '';
+  });
+
+  function readFileAsDataURL(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsDataURL(file);
+    });
+  }
+  function readFileAsText(file) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.readAsText(file);
+    });
+  }
+
+  function renderAttachments() {
+    if (!C.$attachmentsList) return;
+    if (!C.attachedFiles || C.attachedFiles.length === 0) {
+      C.$attachmentsList.innerHTML = '';
+      return;
+    }
+    let html = '';
+    C.attachedFiles.forEach((f, i) => {
+      var isImg = f.type.startsWith('image/');
+      html += '<div class="attach-chip">' +
+        (isImg ? '<img src="' + f.dataUrl.replace(/"/g, '&quot;') + '" class="attach-thumb">' : '<span class="attach-icon">📄</span>') +
+        '<span class="attach-name" title="' + MD.escapeHtml(f.name) + '">' + MD.escapeHtml(f.name.slice(0, 16) + (f.name.length > 16 ? '\u2026' : '')) + '</span>' +
+        '<button class="attach-remove" data-idx="' + i + '" title="移除">✕</button>' +
+      '</div>';
+    });
+    C.$attachmentsList.innerHTML = html;
+    C.$attachmentsList.querySelectorAll('.attach-remove').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var idx = parseInt(btn.dataset.idx);
+        C.attachedFiles.splice(idx, 1);
+        renderAttachments();
+        autoResize();
+      });
+    });
+  }
 
   // -- 代码复制 (事件委托) --
   shadow.addEventListener('click', (e) => {

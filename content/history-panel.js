@@ -59,12 +59,29 @@
 
   function restoreMessagesFromHistory() {
     var C = window.__CTX__;
+    var MD = window.AIChatMD;
     C.$messages.innerHTML = '';
     C.chatHistory.forEach(function(m) {
       if (m._auto) return;
       if (/^\[第\d+题\]/.test(m.content)) return;
-      if (m.role === 'user') addMessageBubble('user', m.content);
-      else if (m.role === 'assistant') addMessageBubble('ai', m.content);
+      if (m.role === 'user') {
+        var bubble = addMessageBubble('user', m.content);
+        // 有附件时追加文件名
+        if (m._attachments && m._attachments.length > 0) {
+          var attachDiv = document.createElement('div');
+          attachDiv.className = 'attach-hist';
+          m._attachments.forEach(function(a) {
+            var isImg = (a.type || '').startsWith('image/');
+            var chip = document.createElement('span');
+            chip.className = 'attach-hist-chip';
+            chip.textContent = (isImg ? '📷 ' : '📄 ') + MD.escapeHtml(a.name);
+            attachDiv.appendChild(chip);
+          });
+          bubble.appendChild(attachDiv);
+        }
+      } else if (m.role === 'assistant') {
+        addMessageBubble('ai', m.content);
+      }
     });
     if (C.chatHistory.length === 0) showWelcome();
   }

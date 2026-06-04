@@ -161,6 +161,57 @@ window.AIChatCSS = `
     .send-btn:disabled { opacity: .38; cursor: default; filter: none; }
     .send-btn svg { width: 22px; height: 22px; fill: currentColor; }
 
+    /* ---- 上方按钮行 (加号) ---- */
+    .top-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 6px 16px 4px;
+      background: var(--md-surface-container-low);
+    }
+    .attach-btn {
+      width: 32px; height: 32px; border-radius: 50%;
+      border: 1.5px solid var(--md-outline-variant);
+      background: transparent; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--md-on-surface-variant); flex-shrink: 0;
+      transition: background .2s, border-color .2s, color .2s;
+      font-size: 20px; font-weight: 300;
+    }
+    .attach-btn:hover { background: var(--md-surface-container-high); border-color: var(--md-primary); color: var(--md-primary); }
+    .attach-btn svg { pointer-events: none; width: 18px; height: 18px; }
+
+    /* 附件列表 (在 top-row 内联显示) */
+    .attachments-list { display: flex; flex-wrap: wrap; gap: 6px; }
+    .attach-chip {
+      display: inline-flex; align-items: center; gap: 4px;
+      background: var(--md-surface-container);
+      border: 1px solid var(--md-outline-variant);
+      border-radius: 8px; padding: 2px 8px 2px 2px;
+      font-size: 12px; max-width: 160px;
+    }
+    .attach-thumb { width: 24px; height: 24px; border-radius: 4px; object-fit: cover; flex-shrink: 0; }
+    .attach-icon { width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 14px; }
+    .attach-name { color: var(--md-on-surface); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .attach-remove {
+      width: 18px; height: 18px; border-radius: 50%; border: none;
+      background: transparent; cursor: pointer; color: var(--md-outline);
+      font-size: 11px; display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0; transition: color .15s;
+    }
+    .attach-remove:hover { color: var(--md-error); }
+
+    /* 消息气泡内图片缩略图 */
+    .attach-inline { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+    .attach-inline-thumb { max-width: 120px; max-height: 80px; border-radius: 8px; object-fit: cover; }
+
+    /* 历史记录中的附件标签 */
+    .attach-hist { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+    .attach-hist-chip {
+      display: inline-block; padding: 2px 8px; border-radius: 6px;
+      background: var(--md-surface-container);
+      font-size: 11px; color: var(--md-on-surface-variant);
+      border: 1px solid var(--md-outline-variant);
+    }
+
     /* ---- Markdown 渲染 ---- */
     .bubble h1,.bubble h2,.bubble h3,.bubble h4,.bubble h5,.bubble h6 {
       margin: 10px 0 4px; font-weight: 600; line-height: 1.3;
