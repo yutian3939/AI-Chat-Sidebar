@@ -77,14 +77,19 @@ MD3 风格 AI 对话侧边栏，支持 OpenAI 兼容 API。特别优化超星学
 ## 📁 项目结构
 
 ```
-my-extension/
-├── manifest.json      # Manifest V3，document_start
-├── background.js      # Service Worker：流式聊天 + 自动答题 API
-├── content.js         # Content Script：悬浮球 + 侧边栏 + 自动答题
-├── settings.html      # 设置页面
-├── settings.css       # 设置页样式
-├── settings.js        # 设置页逻辑
-├── icons/             # 16/48/128 px 图标
+AI_ChatSidebar/
+├── manifest.json           # Manifest V3，document_start
+├── background.js           # Service Worker：流式聊天 + 自动答题 API
+├── content/                # Content Script 模块
+│   ├── index.js            # 主入口：DOM 创建、事件编排、聊天核心
+│   ├── styles.js           # MD3 主题 CSS (亮色/暗色)
+│   ├── icons.js            # SVG 图标常量
+│   ├── markdown.js         # Markdown / KaTeX 渲染 (纯工具函数)
+│   ├── auto-answer.js      # 超星学习通自动答题
+│   ├── settings-panel.js   # 设置面板 (供应商/模型/主题管理)
+│   └── history-panel.js    # 历史记录 + 消息渲染
+├── lib/                    # KaTeX 数学公式库
+├── icons/                  # 16/48/128 px 图标
 └── README.md
 ```
 

@@ -11,7 +11,16 @@
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["lib/katex.min.js", "content.js"],
+      "js": [
+        "lib/katex.min.js",
+        "content/styles.js",
+        "content/icons.js",
+        "content/markdown.js",
+        "content/auto-answer.js",
+        "content/settings-panel.js",
+        "content/history-panel.js",
+        "content/index.js"
+      ],
       "run_at": "document_start"
     }
   ],
