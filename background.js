@@ -77,6 +77,26 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     captureScreenshot(msg.rect).then(sendResponse);
     return true;
   }
+
+  // 获取所有打开的标签页
+  if (msg.type === 'get-tabs') {
+    chrome.tabs.query({}).then(tabs => {
+      const currentTab = tabs.find(t => t.active);
+      sendResponse({
+        tabs: tabs.map(t => ({ id: t.id, title: t.title, url: t.url, active: t.active })),
+        currentTabId: currentTab ? currentTab.id : null
+      });
+    }).catch(err => sendResponse({ error: err.message }));
+    return true;
+  }
+
+  // 提取标签页文本内容
+  if (msg.type === 'get-tab-content') {
+    getTabContent(msg.tabId)
+      .then(data => { try { sendResponse(data); } catch(e) {} })
+      .catch(err => { try { sendResponse({ error: err.message || '提取失败' }); } catch(e) {} });
+    return true;
+  }
 });
 
 // ---- 截图工具 ----
@@ -479,5 +499,41 @@ async function answerSingleQuestion(question, options) {
     return { letter, reason: reason.slice(0, 100) };
   } catch (err) {
     return { error: err.message };
+  }
+}
+
+// ---- 提取标签页文本内容 ----
+async function getTabContent(tabId) {
+  try {
+    // 先检查标签页是否存在
+    const tab = await chrome.tabs.get(tabId);
+    if (!tab) return { error: '标签页不存在' };
+
+    // 检查是否是受限页面 (chrome://, edge://, about: 等)
+    if (!tab.url || !/^https?:\/\//i.test(tab.url)) {
+      return { error: '无法读取系统页面 (仅支持 http/https 网页)' };
+    }
+
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => {
+        // 尝试提取主要内容区域
+        const article = document.querySelector('article')
+          || document.querySelector('main')
+          || document.querySelector('[role="main"]')
+          || document.body;
+        const clone = article.cloneNode(true);
+        // 移除非内容元素
+        clone.querySelectorAll('script, style, noscript, iframe, nav, footer, header, .sidebar, .nav, .menu, .advertisement, [role="navigation"]').forEach(el => el.remove());
+        const text = (clone.innerText || clone.textContent || '');
+        return text.replace(/\n{3,}/g, '\n\n').trim().slice(0, 30000);
+      }
+    });
+    if (results && results[0] && results[0].result) {
+      return { text: results[0].result, title: tab.title || '', url: tab.url || '' };
+    }
+    return { text: '', title: tab.title || '', url: tab.url || '' };
+  } catch (err) {
+    return { error: err.message || '提取失败' };
   }
 }

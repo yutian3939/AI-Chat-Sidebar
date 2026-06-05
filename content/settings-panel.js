@@ -279,13 +279,15 @@
     renderProviderSelect();
     fillProviderFields();
     renderCurrentModelSelect();
-    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt', 'skipAnswered']);
+    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt', 'skipAnswered', 'autoContext']);
     var C = window.__CTX__;
     C.$settingsSystemPrompt.value = data.systemPrompt || '你是一个有帮助的AI助手。';
     C.$settingsTheme.value = data.theme || 'system';
     C.colorScheme = data.colorScheme || 'purple';
     C.skipAnswered = data.skipAnswered !== false; // 默认 true
     if (C.$settingsSkipAnswered) C.$settingsSkipAnswered.checked = C.skipAnswered;
+    C.autoContext = !!data.autoContext;
+    if (C.$settingsAutoContext) C.$settingsAutoContext.checked = C.autoContext;
     C.visionMode = data.visionMode || 'none';
     C.visionModelProvider = data.visionModelProvider || 'openai';
     C.visionModel = data.visionModel || '';
@@ -476,6 +478,13 @@
       C.$settingsSkipAnswered.addEventListener('change', function() {
         C.skipAnswered = C.$settingsSkipAnswered.checked;
         chrome.storage.local.set({ skipAnswered: C.skipAnswered });
+      });
+    }
+    // 页面感知
+    if (C.$settingsAutoContext) {
+      C.$settingsAutoContext.addEventListener('change', function() {
+        C.autoContext = C.$settingsAutoContext.checked;
+        chrome.storage.local.set({ autoContext: C.autoContext });
       });
     }
   }

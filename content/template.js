@@ -118,6 +118,14 @@ window.AIChatTemplate = function(I) {
               '<span class="switch-thumb"></span>' +
             '</span>' +
           '</label>' +
+          '<label class="switch-row">' +
+            '<span class="switch-label">页面感知（打开侧边栏时自动添加上下文）</span>' +
+            '<span class="switch-track">' +
+              '<input type="checkbox" id="settings-auto-context">' +
+              '<span class="switch-track-bg"></span>' +
+              '<span class="switch-thumb"></span>' +
+            '</span>' +
+          '</label>' +
         '</div>' +
         '<div class="settings-section">' +
           '<h3>主题</h3>' +

@@ -633,6 +633,62 @@ window.AIChatCSS = `
     }
 
     @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ---- 附件菜单弹窗 ---- */
+    .attach-menu {
+      position: absolute; bottom: 140px; left: 16px; right: 16px;
+      background: var(--md-surface-container);
+      border: 1px solid var(--md-outline-variant);
+      border-radius: 16px;
+      box-shadow: var(--md-elevation3);
+      overflow: hidden;
+      animation: fadeUp .2s ease;
+      z-index: 50; max-height: 320px;
+      display: flex; flex-direction: column;
+    }
+    .attach-menu-card {
+      padding: 6px 0;
+    }
+    .attach-menu-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 14px; cursor: pointer;
+      font-size: 13px; color: var(--md-on-surface);
+      transition: background .15s;
+      user-select: none; -webkit-user-select: none;
+    }
+    .attach-menu-item:hover { background: var(--md-surface-container-high); }
+    .attach-menu-icon {
+      width: 24px; text-align: center; flex-shrink: 0; font-size: 16px;
+    }
+    .attach-menu-back {
+      border-bottom: 1px solid var(--md-outline-variant);
+      color: var(--md-on-surface-variant); font-size: 12px;
+    }
+    .attach-menu-loading, .attach-menu-empty, .attach-menu-error {
+      padding: 16px 14px; font-size: 13px;
+      color: var(--md-on-surface-variant); text-align: center;
+    }
+    .attach-menu-error { color: var(--md-error); }
+    .attach-menu-tabs {
+      max-height: 220px; overflow-y: auto;
+    }
+    .attach-menu-tabs::-webkit-scrollbar { width: 4px; }
+    .attach-menu-tabs::-webkit-scrollbar-thumb {
+      background: var(--md-outline-variant); border-radius: 2px;
+    }
+    .attach-tab-info { flex: 1; min-width: 0; }
+    .attach-tab-title {
+      font-size: 13px; color: var(--md-on-surface);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    }
+    .attach-tab-url {
+      font-size: 11px; color: var(--md-on-surface-variant);
+      overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+      margin-top: 2px;
+    }
+    .attach-tab-item.current {
+      background: var(--md-primary-container);
+    }
 `;
 
 // ============================================================

@@ -63,6 +63,7 @@
     visionModel: '',
     attachedFiles: [],
     skipAnswered: true,
+    autoContext: false,
 
     // DOM 引用 (稍后填充)
     host: null, shadow: null,
@@ -84,7 +85,7 @@
     $settingsSkipAnswered: null,
     $attachmentsList: null,
     $btnAttach: null, $btnScreenshot: null,
-    $settingsQuickShot: null, $fileInput: null,
+    $settingsQuickShot: null, $settingsAutoContext: null, $fileInput: null,
     $settingsCustomNameWrap: null, $settingsCustomName: null,
     $settingsAddModel: null, $settingsModelChips: null,
     $settingsCurrentModel: null,
@@ -145,14 +146,16 @@
     C.themePref = theme || 'system';
     applyTheme(C.themePref);
   });
-  chrome.storage.local.get(['colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'skipAnswered'], (data) => {
+  chrome.storage.local.get(['colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'skipAnswered', 'autoContext'], (data) => {
     C.colorScheme = data.colorScheme || 'purple';
     C.visionMode = data.visionMode || 'none';
     C.visionModelProvider = data.visionModelProvider || 'openai';
     C.visionModel = data.visionModel || '';
     C.skipAnswered = data.skipAnswered !== false;
+    C.autoContext = !!data.autoContext;
     C.host.setAttribute('data-theme', getCurrentMode());
     applyColorScheme(C.colorScheme);
+    if (C.$settingsAutoContext) C.$settingsAutoContext.checked = C.autoContext;
   });
 
   // ======================== 创建 Shadow DOM ========================
@@ -228,6 +231,7 @@
   C.$btnAttach = shadow.getElementById('btn-attach');
   C.$btnScreenshot = shadow.getElementById('btn-screenshot');
   C.$settingsQuickShot = shadow.getElementById('settings-quick-shot');
+  C.$settingsAutoContext = shadow.getElementById('settings-auto-context');
   C.$fileInput = shadow.getElementById('file-input');
 
   // ======================== 侧边栏宽度 ========================
@@ -285,12 +289,47 @@
       C.isHomework = !!document.querySelector('.questionLi[typename="单选题"]');
       C.$autoRow.style.display = C.isHomework ? 'flex' : 'none';
       if (C.isHomework) C.$autoStatus.textContent = '';
+      // 页面感知：自动提取当前页面内容
+      if (C.autoContext && !C._autoContextAdded && C.attachedFiles.length === 0) {
+        addCurrentPageContext();
+      }
       setTimeout(() => C.$input.focus(), 320);
     } else {
       fab.style.right = '';
     }
   }
   C.toggleSidebar = toggleSidebar;
+
+  // 提取当前页面文本
+  function extractPageText() {
+    try {
+      var article = document.querySelector('article') || document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
+      var clone = article.cloneNode(true);
+      clone.querySelectorAll('script, style, noscript, iframe, nav, footer, header, .sidebar, .nav, .menu, .advertisement, [role="navigation"]').forEach(function(el) { el.remove(); });
+      var text = (clone.innerText || clone.textContent || '');
+      return text.replace(/\n{3,}/g, '\n\n').trim().slice(0, 30000);
+    } catch(e) { return ''; }
+  }
+
+  function addCurrentPageContext() {
+    var text = extractPageText();
+    if (!text) return;
+    var title = document.title || '当前页面';
+    var name = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) + '.txt';
+    C.attachedFiles.push({
+      name: name,
+      type: 'text/plain',
+      dataUrl: '',
+      text: '【网页标题】' + title + '\n【网页地址】' + location.href + '\n\n' + text
+    });
+    C._autoContextAdded = true;
+    renderAttachments();
+    autoResize();
+    if (C.$autoStatus && !C.isHomework) {
+      C.$autoStatus.textContent = '已感知当前页面';
+      setTimeout(function() { if (C.$autoStatus) C.$autoStatus.textContent = ''; }, 3000);
+    }
+  }
 
   function autoResize() {
     C.$input.style.height = 'auto';
@@ -483,10 +522,190 @@
   C.$input.addEventListener('input', autoResize);
   C.$sendBtn.addEventListener('click', sendMessage);
 
-  // -- 附件上传 --
-  C.$btnAttach.addEventListener('click', () => {
-    C.$fileInput.click();
+  // -- 附件菜单 (上传文件 / 添加网页上下文) --
+  const attachMenu = document.createElement('div');
+  attachMenu.id = 'attach-menu';
+  attachMenu.className = 'attach-menu';
+  attachMenu.style.display = 'none';
+  attachMenu.innerHTML = '<div class="attach-menu-card" id="attach-menu-card"></div>';
+  C.$autoRow.parentNode.insertBefore(attachMenu, C.$autoRow.nextSibling);
+  C.$attachMenu = attachMenu;
+  let attachMenuMode = 'main';
+
+  function showAttachMenu() {
+    attachMenu.style.display = 'flex';
+    attachMenuMode = 'main';
+    renderAttachMenuMain();
+  }
+  function hideAttachMenu() {
+    attachMenu.style.display = 'none';
+    attachMenuMode = 'main';
+  }
+
+  function renderAttachMenuMain() {
+    var card = shadow.getElementById('attach-menu-card');
+    if (!card) return;
+    card.innerHTML =
+      '<div class="attach-menu-item" data-action="file">' +
+        '<span class="attach-menu-icon">📁</span><span>上传文件</span>' +
+      '</div>' +
+      '<div class="attach-menu-item" data-action="webpage">' +
+        '<span class="attach-menu-icon">🌐</span><span>添加网页上下文</span>' +
+      '</div>';
+  }
+
+  // ---- 统一事件委托 (挂载一次，不随 innerHTML 改变而丢失) ----
+  (function setupAttachMenuDelegation() {
+    var card = shadow.getElementById('attach-menu-card');
+    if (!card) return;
+    card.addEventListener('click', function(e) {
+      e.stopPropagation();
+      var tabItem = e.target.closest('.attach-tab-item');
+      if (tabItem) {
+        addTabContent(parseInt(tabItem.dataset.tabId));
+        return;
+      }
+      var item = e.target.closest('[data-action]');
+      if (!item) return;
+      var action = item.dataset.action;
+      if (action === 'file') {
+        hideAttachMenu();
+        C.$fileInput.click();
+      } else if (action === 'webpage') {
+        loadTabList();
+      } else if (action === 'back') {
+        attachMenuMode = 'main';
+        renderAttachMenuMain();
+      }
+    });
+  })();
+
+  function renderLoadingCard(backLabel) {
+    var card = shadow.getElementById('attach-menu-card');
+    if (!card) return;
+    card.innerHTML =
+      '<div class="attach-menu-item attach-menu-back" data-action="back">' +
+        '<span class="attach-menu-icon">←</span><span>' + (backLabel || '返回') + '</span>' +
+      '</div>' +
+      '<div class="attach-menu-loading">加载中...</div>';
+  }
+
+  function renderErrorCard(errMsg) {
+    var card = shadow.getElementById('attach-menu-card');
+    if (!card) return;
+    card.innerHTML =
+      '<div class="attach-menu-item attach-menu-back" data-action="back">' +
+        '<span class="attach-menu-icon">←</span><span>返回</span>' +
+      '</div>' +
+      '<div class="attach-menu-error">' + MD.escapeHtml(errMsg) + '</div>';
+  }
+
+  function renderEmptyCard(msg) {
+    var card = shadow.getElementById('attach-menu-card');
+    if (!card) return;
+    card.innerHTML =
+      '<div class="attach-menu-item attach-menu-back" data-action="back">' +
+        '<span class="attach-menu-icon">←</span><span>返回</span>' +
+      '</div>' +
+      '<div class="attach-menu-empty">' + MD.escapeHtml(msg) + '</div>';
+  }
+
+  async function loadTabList() {
+    attachMenuMode = 'tabs';
+    renderLoadingCard('返回');
+
+    var tabsRes;
+    try {
+      tabsRes = await Promise.race([
+        chrome.runtime.sendMessage({ type: 'get-tabs' }),
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('请求超时，请刷新扩展')); }, 5000); })
+      ]);
+    } catch (err) {
+      renderErrorCard(err.message || '请确认扩展已重新加载（edge://extensions/ 点击刷新）');
+      return;
+    }
+
+    if (!tabsRes || tabsRes.error) {
+      renderErrorCard(tabsRes?.error || '获取标签页失败');
+      return;
+    }
+
+    // 只过滤系统页面（edge://, chrome:// 等），允许选择当前页面
+    var tabList = tabsRes.tabs.filter(function(t) {
+      return /^https?:\/\//i.test(t.url || '');
+    });
+
+    if (tabList.length === 0) {
+      renderEmptyCard('没有可读取的网页标签');
+      return;
+    }
+
+    var html =
+      '<div class="attach-menu-item attach-menu-back" data-action="back">' +
+        '<span class="attach-menu-icon">←</span><span>选择标签页 (' + tabList.length + ')</span>' +
+      '</div>' +
+      '<div class="attach-menu-tabs">';
+    tabList.forEach(function(tab) {
+      var isCurrent = tab.id === tabsRes.currentTabId;
+      html +=
+        '<div class="attach-menu-item attach-tab-item' + (isCurrent ? ' current' : '') + '" data-tab-id="' + tab.id + '">' +
+          '<span class="attach-menu-icon">' + (isCurrent ? '📍' : '📄') + '</span>' +
+          '<div class="attach-tab-info">' +
+            '<div class="attach-tab-title">' + MD.escapeHtml(tab.title || '无标题') + (isCurrent ? ' <span style="font-size:11px;color:var(--md-primary)">(当前)</span>' : '') + '</div>' +
+            '<div class="attach-tab-url">' + MD.escapeHtml((tab.url || '').slice(0, 60)) + '</div>' +
+          '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+    var card = shadow.getElementById('attach-menu-card');
+    if (card) card.innerHTML = html;
+  }
+
+  async function addTabContent(tabId) {
+    hideAttachMenu();
+    if (C.$autoStatus) C.$autoStatus.textContent = '正在提取网页内容...';
+    try {
+      var raw = await Promise.race([
+        chrome.runtime.sendMessage({ type: 'get-tab-content', tabId: tabId }).catch(function(e) {
+          return { error: e.message || '通道关闭，请重新加载扩展' };
+        }),
+        new Promise(function(_, reject) { setTimeout(function() { reject(new Error('请求超时')); }, 8000); })
+      ]);
+      var result = raw || {};
+      if (result.text) {
+        var title = result.title || '网页';
+        var name = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) + '.txt';
+        C.attachedFiles.push({
+          name: name,
+          type: 'text/plain',
+          dataUrl: '',
+          text: '【网页标题】' + title + '\n【网页地址】' + (result.url || '') + '\n\n' + result.text
+        });
+        renderAttachments();
+        autoResize();
+        if (C.$autoStatus) C.$autoStatus.textContent = '已添加网页: ' + title.slice(0, 18) + '…';
+        setTimeout(function() { if (C.$autoStatus) C.$autoStatus.textContent = ''; }, 3000);
+      } else if (result && result.error) {
+        console.error('[AttachMenu] get-tab-content error:', result.error);
+        if (C.$autoStatus) C.$autoStatus.textContent = '提取失败: ' + result.error;
+        setTimeout(function() { if (C.$autoStatus) C.$autoStatus.textContent = ''; }, 4000);
+      } else {
+        if (C.$autoStatus) C.$autoStatus.textContent = '网页内容为空';
+        setTimeout(function() { if (C.$autoStatus) C.$autoStatus.textContent = ''; }, 3000);
+      }
+    } catch (err) {
+      console.error('[AttachMenu] addTabContent failed:', err);
+      if (C.$autoStatus) C.$autoStatus.textContent = '提取失败: ' + err.message;
+      setTimeout(function() { if (C.$autoStatus) C.$autoStatus.textContent = ''; }, 4000);
+    }
+  }
+
+  C.$btnAttach.addEventListener('click', function(e) {
+    e.stopPropagation();
+    if (attachMenu.style.display !== 'none') { hideAttachMenu(); }
+    else { showAttachMenu(); }
   });
+
   C.$fileInput.addEventListener('change', async () => {
     if (C.$fileInput.files && C.$fileInput.files.length > 0) {
       await addFiles(C.$fileInput.files);
@@ -602,7 +821,7 @@
     });
   }
 
-  // -- 代码复制 (事件委托) --
+  // -- 代码复制 + 关闭附件菜单 (事件委托) --
   shadow.addEventListener('click', (e) => {
     if (e.target.classList.contains('copy-btn')) {
       const pre = e.target.closest('.cb-wrap')?.querySelector('pre code');
@@ -612,6 +831,10 @@
           setTimeout(() => { e.target.textContent = '复制'; }, 1500);
         });
       }
+    }
+    // 点击菜单外部关闭
+    if (attachMenu.style.display !== 'none' && !attachMenu.contains(e.target) && e.target !== C.$btnAttach) {
+      hideAttachMenu();
     }
   });
 
