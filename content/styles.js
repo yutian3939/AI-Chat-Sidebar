@@ -203,6 +203,18 @@ window.AIChatCSS = `
     .attach-inline { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
     .attach-inline-thumb { max-width: 120px; max-height: 80px; border-radius: 8px; object-fit: cover; }
 
+    /* 拖拽文件高亮 */
+    #sidebar.drag-over::after {
+      content: '松手添加文件';
+      position: absolute; inset: 0; z-index: 99;
+      display: flex; align-items: center; justify-content: center;
+      background: rgba(103,80,164,.12);
+      backdrop-filter: blur(2px);
+      font-size: 18px; font-weight: 600; color: var(--md-primary);
+      border: 3px dashed var(--md-primary);
+      pointer-events: none;
+    }
+
     /* 历史记录中的附件标签 */
     .attach-hist { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
     .attach-hist-chip {
@@ -447,7 +459,7 @@ window.AIChatCSS = `
     .settings-body::-webkit-scrollbar-thumb { background: var(--md-outline-variant); border-radius: 2px; }
     .settings-section { margin-bottom: 20px; }
     .settings-section h3 {
-      font-size: 14px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 4px;
+      font-size: 20px; font-weight: 600; color: var(--md-on-surface); margin-bottom: 4px;
     }
     .settings-hint {
       font-size: 12px; color: var(--md-on-surface-variant); margin-bottom: 10px; line-height: 1.5;
@@ -524,6 +536,43 @@ window.AIChatCSS = `
     .settings-hint-sm {
       font-size: 11px; color: var(--md-on-surface-variant); margin-bottom: 0; line-height: 1.5;
     }
+
+    /* ---- MD3 开关 (Switch) ---- */
+    .switch-row {
+      display: flex; align-items: center;
+      padding-top: 6px; min-height: 44px; cursor: pointer; user-select: none;
+      -webkit-user-select: none;
+    }
+    .switch-label {
+      font-size: 14px; color: var(--md-on-surface); line-height: 1.3;
+    }
+    .switch-track {
+      position: relative; display: inline-block; width: 48px; height: 28px; flex-shrink: 0;
+      vertical-align: middle; margin-left: 24px;
+    }
+    .switch-track input {
+      position: absolute; inset: 0; opacity: 0; margin: 0; z-index: 2; cursor: pointer;
+    }
+    .switch-track-bg {
+      position: absolute; inset: 0; border-radius: 14px;
+      background: var(--md-surface-container-highest, #E6E0E9);
+      border: 2px solid var(--md-outline);
+      transition: background .2s, border-color .2s;
+    }
+    .switch-track input:checked ~ .switch-track-bg {
+      background: var(--md-primary); border-color: var(--md-primary);
+    }
+    .switch-thumb {
+      position: absolute; top: 4px; left: 4px;
+      width: 18px; height: 18px; border-radius: 50%;
+      background: var(--md-outline);
+      transition: transform .2s cubic-bezier(.4,0,.2,1), background .2s;
+      box-shadow: 0 1px 3px rgba(0,0,0,.25);
+    }
+    .switch-track input:checked ~ .switch-thumb {
+      transform: translateX(20px);
+      background: var(--md-on-primary);
+    }
     .settings-body .field { margin-bottom: 12px; }
     .settings-body .field:last-child { margin-bottom: 0; }
     .settings-actions { display: flex; gap: 10px; margin-top: 20px; }
@@ -555,6 +604,15 @@ window.AIChatCSS = `
     .settings-status.error { background: #FDECEA; color: var(--md-error); border-left: 3px solid var(--md-error); }
     :host([data-theme="dark"]) .settings-status.success { background: rgba(76,175,99,.12); color: #81C784; }
     :host([data-theme="dark"]) .settings-status.error { background: rgba(242,184,182,.12); }
+
+    /* 测试按钮旁的内联状态 */
+    .test-inline-status {
+      display: inline-flex; align-items: center; margin-left: 10px; font-size: 13px; height: 38px;
+      animation: fadeUp .2s ease;
+    }
+    .test-inline-status.success { color: #2E7D32; }
+    :host([data-theme="dark"]) .test-inline-status.success { color: #81C784; }
+    .test-inline-status.error { color: var(--md-error); }
 
     /* ---- 主题颜色选择器 ---- */
     .color-swatches { display: flex; gap: 10px; flex-wrap: wrap; }

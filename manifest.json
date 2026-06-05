@@ -3,8 +3,8 @@
   "name": "AI Chat Sidebar",
   "version": "1.0.0",
   "description": "MD3 风格的 AI 对话侧边栏，支持 OpenAI 兼容格式",
-  "permissions": ["storage"],
-  "host_permissions": ["http://*/*", "https://*/*"],
+  "permissions": ["storage", "activeTab", "tabs"],
+  "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "background.js"
   },
@@ -18,6 +18,8 @@
         "content/markdown.js",
         "content/auto-answer.js",
         "content/settings-panel.js",
+        "content/screenshot.js",
+        "content/template.js",
         "content/history-panel.js",
         "content/index.js"
       ],

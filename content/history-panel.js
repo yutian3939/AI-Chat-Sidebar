@@ -93,7 +93,7 @@
     wel.className = 'welcome';
     wel.id = 'welcome';
     wel.innerHTML =
-      '<svg viewBox="0 0 24 24"><path d="M12 2L9.19 8.63 2 9.24l5.46 4.73L5.82 21 12 17.27 18.18 21l-1.64-7.03L22 9.24l-7.19-.61L12 2z"/></svg>' +
+      I.STAR +
       '<h3>AI 对话助手</h3>' +
       '<p>输入消息开始对话<br>首次使用请先前往设置配置 API</p>';
     C.$messages.appendChild(wel);
@@ -176,7 +176,7 @@
     if (C.conversations.length === 0) {
       C.$historyList.innerHTML =
         '<div class="history-empty">' +
-          '<svg viewBox="0 0 24 24"><path d="M13 3a9 9 0 00-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06l-1.42 1.42A8.954 8.954 0 0013 21a9 9 0 000-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/></svg>' +
+          I.HISTORY +
           '<span>暂无历史记录</span>' +
         '</div>';
       return;

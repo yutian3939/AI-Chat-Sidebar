@@ -228,27 +228,38 @@
     C.$btnSettingsTest.textContent = '测试中...';
     try {
       var result = await chrome.runtime.sendMessage({ type: 'test-connection', settings: { apiEndpoint: provider.baseUrl, apiKey: provider.apiKey, model: parts[1] } });
-      if (result.success) showSettingsStatus('连接成功', 'success');
-      else showSettingsStatus('连接失败: ' + result.error, 'error');
+      if (result.success) showSettingsStatus('✓ 连接成功', 'success', C.$btnSettingsTest);
+      else showSettingsStatus('✗ ' + result.error, 'error', C.$btnSettingsTest);
     } catch (err) {
-      showSettingsStatus('连接失败: ' + err.message, 'error');
+      showSettingsStatus('✗ ' + err.message, 'error', C.$btnSettingsTest);
     } finally {
       C.$btnSettingsTest.disabled = false;
       C.$btnSettingsTest.innerHTML = origHTML;
     }
   }
 
-  function showSettingsStatus(text, type) {
+  function showSettingsStatus(text, type, targetEl) {
     var C = window.__CTX__;
+    // 如果指定了 targetEl → 在其后面显示内联状态
+    if (targetEl) {
+      var old = targetEl.nextElementSibling;
+      if (old && old.classList.contains('test-inline-status')) old.remove();
+      var span = document.createElement('span');
+      span.className = 'test-inline-status ' + type;
+      span.textContent = text;
+      targetEl.insertAdjacentElement('afterend', span);
+      clearTimeout(targetEl._statusTimer);
+      targetEl._statusTimer = setTimeout(function() { span.remove(); }, 5000);
+      return;
+    }
+    // 否则回退到全局状态栏
     if (!C.$settingsStatus) return;
     C.$settingsStatus.textContent = text;
     C.$settingsStatus.className = 'settings-status show ' + type;
     clearTimeout(C.$settingsStatus._timer);
-    C.$settingsStatus._timer = setTimeout(function() { hideSettingsStatus(); }, 5000);
-  }
-  function hideSettingsStatus() {
-    var C = window.__CTX__;
-    if (C.$settingsStatus) C.$settingsStatus.className = 'settings-status';
+    C.$settingsStatus._timer = setTimeout(function() {
+      if (C.$settingsStatus) C.$settingsStatus.className = 'settings-status';
+    }, 5000);
   }
 
   function openSettingsPanel() {
@@ -268,11 +279,13 @@
     renderProviderSelect();
     fillProviderFields();
     renderCurrentModelSelect();
-    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt']);
+    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt', 'skipAnswered']);
     var C = window.__CTX__;
     C.$settingsSystemPrompt.value = data.systemPrompt || '你是一个有帮助的AI助手。';
     C.$settingsTheme.value = data.theme || 'system';
     C.colorScheme = data.colorScheme || 'purple';
+    C.skipAnswered = data.skipAnswered !== false; // 默认 true
+    if (C.$settingsSkipAnswered) C.$settingsSkipAnswered.checked = C.skipAnswered;
     C.visionMode = data.visionMode || 'none';
     C.visionModelProvider = data.visionModelProvider || 'openai';
     C.visionModel = data.visionModel || '';
@@ -339,10 +352,10 @@
     C.$btnVisionTest.textContent = '测试中...';
     try {
       var result = await chrome.runtime.sendMessage({ type: 'test-connection', settings: { apiEndpoint: provider.baseUrl, apiKey: provider.apiKey, model: visionParts[1] } });
-      if (result.success) showSettingsStatus('视觉模型连接成功', 'success');
-      else showSettingsStatus('连接失败: ' + result.error, 'error');
+      if (result.success) showSettingsStatus('✓ 连接成功', 'success', C.$btnVisionTest);
+      else showSettingsStatus('✗ ' + result.error, 'error', C.$btnVisionTest);
     } catch (err) {
-      showSettingsStatus('连接失败: ' + err.message, 'error');
+      showSettingsStatus('✗ ' + err.message, 'error', C.$btnVisionTest);
     } finally {
       C.$btnVisionTest.disabled = false;
       C.$btnVisionTest.textContent = origText;
@@ -456,6 +469,14 @@
     });
     if (C.$btnVisionTest) {
       C.$btnVisionTest.addEventListener('click', testVisionConnection);
+    }
+
+    // 答题设置
+    if (C.$settingsSkipAnswered) {
+      C.$settingsSkipAnswered.addEventListener('change', function() {
+        C.skipAnswered = C.$settingsSkipAnswered.checked;
+        chrome.storage.local.set({ skipAnswered: C.skipAnswered });
+      });
     }
   }
 

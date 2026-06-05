@@ -25,6 +25,13 @@ const AUTO_ANSWER_PROMPT = `你是一个严谨的作业答题助手。请仔细�
 - 如果题目涉及代码或专业知识，请认真分析`;
 
 /**
+ * 清理字符串首尾空白
+ */
+function cleanStr(str) {
+  return (str || '').trim();
+}
+
+/**
  * 自动补全 API 端点路径
  * 用户可能只填了 base URL，自动补上 /v1/chat/completions 或 /chat/completions
  */
@@ -64,7 +71,49 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     answerSingleQuestion(msg.question, msg.options).then(sendResponse);
     return true;
   }
+
+  // 截图：captureVisibleTab + crop
+  if (msg.type === 'capture-screenshot') {
+    captureScreenshot(msg.rect).then(sendResponse);
+    return true;
+  }
 });
+
+// ---- 截图工具 ----
+async function captureScreenshot(rect) {
+  try {
+    console.warn('[Screenshot BG] 收到截图请求:', rect);
+    const fullDataUrl = await chrome.tabs.captureVisibleTab(null, { format: 'png' });
+    console.warn('[Screenshot BG] captureVisibleTab 结果长度:', fullDataUrl ? fullDataUrl.length : 0);
+    if (!fullDataUrl) { console.error('[Screenshot BG] captureVisibleTab 返回空'); return null; }
+
+    const dpr = rect.dpr || 1;
+    const sx = Math.round(rect.x * dpr);
+    const sy = Math.round(rect.y * dpr);
+    const sw = Math.round(rect.w * dpr);
+    const sh = Math.round(rect.h * dpr);
+    console.warn('[Screenshot BG] 裁切参数:', { sx, sy, sw, sh, dpr });
+
+    // 裁切：直接创建小 canvas 绘制目标区域
+    const imgBlob = await fetch(fullDataUrl).then(r => r.blob());
+    const img = await createImageBitmap(imgBlob);
+    const canvas = new OffscreenCanvas(sw, sh);
+    const ctx2d = canvas.getContext('2d');
+    ctx2d.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+    const blob = await canvas.convertToBlob({ type: 'image/png' });
+    const result = await new Promise((resolve) => {
+      var reader = new FileReader();
+      reader.onload = function() { resolve(reader.result); };
+      reader.readAsDataURL(blob);
+    });
+    img.close();
+    console.warn('[Screenshot BG] 裁切完成, 结果长度:', result ? result.length : 0);
+    return result;
+  } catch (err) {
+    console.error('[Screenshot BG] 截图失败:', err);
+    return null;
+  }
+}
 
 // ---- 处理来自 content script 的长连接 (流式响应) ----
 chrome.runtime.onConnect.addListener((port) => {
@@ -160,7 +209,7 @@ async function streamChat(settings, messages, port) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${settings.apiKey}`
+      'Authorization': 'Bearer ' + cleanStr(settings.apiKey)
     },
     body: JSON.stringify({
       model: settings.model,
@@ -246,7 +295,7 @@ async function chatCompletion(settings, messages, port) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
+        'Authorization': 'Bearer ' + cleanStr(settings.apiKey)
       },
       body
     });
@@ -304,7 +353,7 @@ async function describeImages(vs, dataUrls, userText) {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${vs.apiKey}`
+      'Authorization': 'Bearer ' + cleanStr(vs.apiKey)
     },
     body: JSON.stringify({
       model: vs.model,
@@ -338,7 +387,7 @@ async function testConnection(settings) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
+        'Authorization': 'Bearer ' + cleanStr(settings.apiKey)
       },
       body: JSON.stringify({
         model: settings.model,
@@ -384,7 +433,7 @@ async function answerSingleQuestion(question, options) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${settings.apiKey}`
+        'Authorization': 'Bearer ' + cleanStr(settings.apiKey)
       },
       body: JSON.stringify({
         model: settings.model,

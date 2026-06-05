@@ -285,7 +285,9 @@
     if (!C.isHomework) return;
 
     var allQuestions = extractQuestions();
-    var unanswered = allQuestions.filter(function(q) { return !q.answered; });
+    var unanswered = C.skipAnswered
+      ? allQuestions.filter(function(q) { return !q.answered; })
+      : allQuestions.slice();
 
     if (unanswered.length === 0) {
       C.$autoStatus.textContent = allQuestions.length > 0 ? '所有题目已作答完成' : '未检测到题目';
@@ -311,22 +313,28 @@
 
     // 初始化答题数据
     C.autoAnswerData = { total: allQuestions.length, results: [] };
-    allQuestions.forEach(function(q) {
-      if (q.answered) {
-        C.autoAnswerData.results.push({ qnum: q.qnum, letter: '', reason: '已作答，跳过', status: 'skipped' });
-      }
-    });
+    if (C.skipAnswered) {
+      allQuestions.forEach(function(q) {
+        if (q.answered) {
+          C.autoAnswerData.results.push({ qnum: q.qnum, letter: '', reason: '已作答，跳过', status: 'skipped' });
+        }
+      });
+    }
 
     ensureAutoResults();
     var totalAll = allQuestions.length;
     var title = C.shadow.getElementById('auto-results-title');
     if (title) title.textContent = '答题结果 (共' + totalAll + '题)';
 
-    allQuestions.forEach(function(q) {
-      if (q.answered) updateAutoItem(q.qnum, 'skipped');
-    });
+    if (C.skipAnswered) {
+      allQuestions.forEach(function(q) {
+        if (q.answered) updateAutoItem(q.qnum, 'skipped');
+      });
+    }
 
-    var completedCount = allQuestions.filter(function(q) { return q.answered; }).length;
+    var completedCount = C.skipAnswered
+      ? allQuestions.filter(function(q) { return q.answered; }).length
+      : 0;
 
     for (var i = 0; i < unanswered.length; i++) {
       if (C.autoAnswerAbort) {
