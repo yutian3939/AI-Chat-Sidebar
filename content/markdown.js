@@ -24,6 +24,8 @@
   }
 
   function inline(text) {
+    // 先转义 HTML 特殊字符，防止 <x,x> 这类数学符号被浏览器当成 HTML 标签
+    text = escapeHtml(text);
     return text
       .replace(/`([^`]+)`/g, '<code>$1</code>')
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
