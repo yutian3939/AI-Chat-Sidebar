@@ -186,7 +186,8 @@ chrome.runtime.onConnect.addListener((port) => {
           const hasImgs = !!(m._images && m._images.length > 0);
           const storageKey = m._images?.[0]?.storageKey;
           const stored = storageKey ? await chrome.storage.local.get(storageKey) : {};
-          const dataUrls = stored[storageKey] || [];
+          const dataUrls = (stored[storageKey] || []).filter(Boolean); // 过滤空的 dataUrl
+          const hasValidImgs = hasImgs && dataUrls.length > 0;
 
           // 构建该条消息的最终文本 (含文件内容)
           let fullMsgText = m.content || '';
@@ -202,7 +203,8 @@ chrome.runtime.onConnect.addListener((port) => {
             }
           }
 
-          if (hasImgs && visionMode === 'main') {
+          // 只有真正有图片数据时才走多模态路径
+          if (hasValidImgs && visionMode === 'main') {
             hasMultimodal = true;
             const contentArr = [];
             dataUrls.forEach(url => {
@@ -272,6 +274,7 @@ chrome.runtime.onConnect.addListener((port) => {
 
         // 构建聊天历史（含 _agent_tool 用于 UI 显示）
         const chatHistory = [];
+        const visionMode = msg.visionMode || 'none';
         for (const m of msg.history) {
           if (m.role === 'system') continue;
           chatHistory.push(m);
@@ -288,7 +291,21 @@ chrome.runtime.onConnect.addListener((port) => {
                 content = fileTexts.join('\n\n') + (content ? '\n\n---\n' + content : '');
               }
             }
-            if (m.role !== '_agent_tool') {
+
+            // 处理图片：Agent 模式同样支持多模态
+            const hasImgs = !!(m._images && m._images.length > 0);
+            if (hasImgs && visionMode === 'main') {
+              const storageKey = m._images[0].storageKey;
+              const stored = storageKey ? await chrome.storage.local.get(storageKey) : {};
+              const dataUrls = stored[storageKey] || [];
+              const contentArr = [];
+              dataUrls.forEach(url => {
+                contentArr.push({ type: 'image_url', image_url: { url } });
+              });
+              contentArr.push({ type: 'text', text: content || '请描述这张图片' });
+              messages.push({ role: m.role, content: contentArr });
+              if (storageKey) chrome.storage.local.remove(storageKey);
+            } else if (m.role !== '_agent_tool') {
               messages.push({ role: m.role, content });
             }
           }
@@ -406,7 +423,11 @@ async function streamChat(settings, messages, port) {
 
 // ---- 非流式调用 (用于多模态，避免 Qwen 等兼容性问题) ----
 async function chatCompletion(settings, messages, port) {
+  const controller = new AbortController();
+  port.onDisconnect.addListener(() => controller.abort());
+
   try {
+    console.log('[ChatCompletion] 使用模型:', settings.model, '端点:', settings.apiEndpoint, '消息数:', messages.length, '请求体大小:', Math.round(JSON.stringify({ model: settings.model, messages, stream: false }).length / 1024) + 'KB');
     const body = JSON.stringify({ model: settings.model, messages, stream: false });
 
     const response = await fetch(settings.apiEndpoint, {
@@ -415,19 +436,26 @@ async function chatCompletion(settings, messages, port) {
         'Content-Type': 'application/json',
         'Authorization': 'Bearer ' + cleanStr(settings.apiKey)
       },
-      body
+      body,
+      signal: controller.signal
     });
 
+    console.log('[ChatCompletion] HTTP 状态:', response.status);
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      port.postMessage({ type: 'error', content: `API 错误 (${response.status}): ${text || response.statusText}` });
-      port.postMessage({ type: 'done' });
+      console.error('[ChatCompletion] API 错误:', response.status, text.slice(0, 500));
+      if (!controller.signal.aborted) {
+        port.postMessage({ type: 'error', content: `API 错误 (${response.status}): ${text || response.statusText}` });
+        port.postMessage({ type: 'done' });
+      }
       return;
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
+    console.log('[ChatCompletion] 响应内容长度:', content ? content.length : 0);
 
+    if (controller.signal.aborted) return;
     if (content) {
       port.postMessage({ type: 'chunk', content });
     } else {
@@ -435,8 +463,12 @@ async function chatCompletion(settings, messages, port) {
     }
     port.postMessage({ type: 'done' });
   } catch (err) {
-    port.postMessage({ type: 'error', content: err.message });
-    port.postMessage({ type: 'done' });
+    console.error('[ChatCompletion] 异常:', err.name, err.message);
+    if (err.name === 'AbortError') return;
+    if (!controller.signal.aborted) {
+      port.postMessage({ type: 'error', content: err.message });
+      port.postMessage({ type: 'done' });
+    }
   }
 }
 

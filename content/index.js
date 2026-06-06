@@ -425,10 +425,29 @@
     let fullUserText = text || '';
     const files = C.attachedFiles.slice();
     const images = [];
+    let _imgCheckFailed = false;
     if (files.length > 0) {
       const parts = [];
       files.forEach(f => {
+        if (_imgCheckFailed) return;
         if (f.type.startsWith('image/')) {
+          if (!f.dataUrl) {
+            _imgCheckFailed = true;
+            HP.addError('图片数据无效，请重新添加。');
+            C.attachedFiles = [];
+            renderAttachments();
+            C.$sendBtn.disabled = true;
+            return;
+          }
+          // 检查图片大小：超过 5MB 的 base64 数据可能导致存储或 API 请求失败
+          if (f.dataUrl.length > 7 * 1024 * 1024) {
+            _imgCheckFailed = true;
+            HP.addError('图片过大（超过约 5MB），请缩小尺寸后重试。');
+            C.attachedFiles = [];
+            renderAttachments();
+            C.$sendBtn.disabled = true;
+            return;
+          }
           images.push({ dataUrl: f.dataUrl });
           // 多模态时图片以 vision_url 发送，文字标注可选
           if (C.visionMode !== 'main') {
@@ -438,6 +457,7 @@
           // 文件内容通过 _attachments[].text 传给 AI，气泡只显示附件标签
         }
       });
+      if (_imgCheckFailed) return;
       if (parts.length > 0) {
         fullUserText = parts.join('\n\n') + (text ? '\n\n---\n' + text : '');
       }
@@ -476,9 +496,20 @@
     // 存聊天历史
     // 图片 dataUrl 通过 chrome.storage.local 中转，避免 port.postMessage 序列化大体积数据崩溃
     const imageStorageKey = '_img_' + Date.now();
-    const imageDataUrls = images.map(i => i.dataUrl);
+    const imageDataUrls = images.map(i => i.dataUrl).filter(Boolean);
     if (imageDataUrls.length > 0) {
-      await chrome.storage.local.set({ [imageStorageKey]: imageDataUrls });
+      try {
+        await chrome.storage.local.set({ [imageStorageKey]: imageDataUrls });
+      } catch (storageErr) {
+        console.error('[Send] 图片存储失败，可能是图片过大或存储空间不足:', storageErr);
+        HP.removeLoading();
+        HP.addError('图片存储失败（可能过大）。请尝试缩小图片后重试。');
+        C.isStreaming = false;
+        C.attachedFiles = [];
+        renderAttachments();
+        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
+        return;
+      }
     }
     C.chatHistory.push({ role: 'user', content: fullUserText, _attachments: files.map(f => ({ name: f.name, type: f.type, text: f.text || '' })), _images: images.map((_, i) => ({ storageKey: imageStorageKey, index: i })) });
     // 清除附件

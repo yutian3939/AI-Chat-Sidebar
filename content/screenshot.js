@@ -157,7 +157,7 @@
     cancelAnimationFrame(rafId);
     try { overlay.releasePointerCapture(e.pointerId); } catch(_) {}
     if (selW < 8 || selH < 8) {
-      if (!hasSelection) { removeOverlay(); return; }
+      if (!hasSelection) { removeOverlay(); restoreSidebar(); return; }
       hideAdjustmentUI();
       return;
     }
@@ -220,13 +220,15 @@
 
   // ---- 截图 ----
   async function captureAndClose() {
-    if (!hasSelection || selW < 1 || selH < 1) return;
+    if (!hasSelection || selW < 1 || selH < 1) { restoreSidebar(); return; }
     var rect = { x: selX, y: selY, w: selW, h: selH, dpr: window.devicePixelRatio || 1 };
     var doSend = quickMode; // 在 removeOverlay 前保存
     removeOverlay();
     try {
       var dataUrl = await chrome.runtime.sendMessage({ type: 'capture-screenshot', rect: rect });
       if (dataUrl) {
+        // 先恢复侧边栏，再发送消息（避免 toggleSidebar 内部的 syncFromStorage 清屏）
+        restoreSidebar();
         var C = getCtx();
         if (C) {
           C.attachedFiles.push({ name: '截图_' + Date.now() + '.png', type: 'image/png', dataUrl: dataUrl, text: '' });
@@ -234,15 +236,43 @@
           if (C.autoResize) C.autoResize();
           // 快速截图模式：直接发送
           if (doSend && C.sendMessage) C.sendMessage();
+          return;
         }
       }
     } catch (err) {
       console.error('[Screenshot] 截图失败:', err);
     }
+    // 截图失败或 dataUrl 为空时恢复侧边栏
+    restoreSidebar();
   }
 
   // ---- 打开/关闭 ----
+  var _sidebarWasOpen = false;
+
+  function saveSidebarState() {
+    var C = getCtx();
+    _sidebarWasOpen = !!(C && C.sidebarOpen);
+    if (_sidebarWasOpen && C && C.toggleSidebar) {
+      C.toggleSidebar(false);
+    }
+  }
+
+  function restoreSidebar() {
+    if (_sidebarWasOpen) {
+      var C = getCtx();
+      if (C && !C.sidebarOpen) {
+        // 直接打开侧边栏，不触发 syncFromStorage（避免清屏覆盖刚发/刚渲染的消息）
+        C.sidebarOpen = true;
+        C.sidebar.classList.add('open');
+        C.fab.classList.add('open');
+        C.fab.style.right = (C.sidebarWidth + 12) + 'px';
+      }
+      _sidebarWasOpen = false;
+    }
+  }
+
   function startScreenshot() {
+    saveSidebarState();
     ensureOverlay();
     hasSelection = false;
     selW = selH = 0;
@@ -257,6 +287,7 @@
     if (e.key === 'Escape') {
       document.removeEventListener('keydown', onKeyDown, true);
       removeOverlay();
+      restoreSidebar();
     }
   }
 

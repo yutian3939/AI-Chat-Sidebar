@@ -72,6 +72,15 @@
         } catch(e) { mathBlocks.push('<code class="math-fallback">' + escapeHtml(math.trim()) + '</code>'); }
         return '\x00MB' + idx + '\x00';
       });
+      // 行内公式 $...$（最多匹配单行，避免跨行贪婪）
+      text = text.replace(/\$([^$\n]+?)\$/g, function(_, math) {
+        if (!math.trim()) return _;
+        var idx = mathBlocks.length;
+        try {
+          mathBlocks.push(katex.renderToString(math.trim(), { displayMode: false, throwOnError: false }));
+        } catch(e) { mathBlocks.push('<code class="math-fallback">' + escapeHtml(math.trim()) + '</code>'); }
+        return '\x00MB' + idx + '\x00';
+      });
     }
 
     var lines = text.split('\n');
