@@ -3,8 +3,8 @@
   "name": "AI Chat Sidebar",
   "version": "1.0.0",
   "description": "MD3 风格的 AI 对话侧边栏，支持 OpenAI 兼容格式",
-  "permissions": ["storage", "activeTab", "tabs", "scripting"],
-  "host_permissions": ["<all_urls>"],
+  "permissions": ["storage", "activeTab", "tabs", "scripting", "clipboardRead", "clipboardWrite"],
+  "host_permissions": ["<all_urls>", "https://lite.duckduckgo.com/*"],
   "background": {
     "service_worker": "background.js"
   },

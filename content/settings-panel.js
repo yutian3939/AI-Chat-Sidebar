@@ -279,7 +279,7 @@
     renderProviderSelect();
     fillProviderFields();
     renderCurrentModelSelect();
-    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt', 'skipAnswered', 'autoContext']);
+    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt', 'skipAnswered', 'autoContext', 'agentMode', 'agentMaxSteps']);
     var C = window.__CTX__;
     C.$settingsSystemPrompt.value = data.systemPrompt || '你是一个有帮助的AI助手。';
     C.$settingsTheme.value = data.theme || 'system';
@@ -293,6 +293,13 @@
     C.visionModel = data.visionModel || '';
     C.$settingsVisionMode.value = C.visionMode;
     C.$settingsVisionPrompt.value = data.visionPrompt || '请简洁描述图片内容。';
+    // Agent 设置
+    C.agentMode = !!data.agentMode;
+    C.agentMaxSteps = data.agentMaxSteps != null ? data.agentMaxSteps : 5;
+    var $agentMode = C.shadow.getElementById('settings-agent-mode');
+    if ($agentMode) $agentMode.checked = C.agentMode;
+    var $agentMaxSteps = C.shadow.getElementById('settings-agent-max-steps');
+    if ($agentMaxSteps) $agentMaxSteps.value = String(C.agentMaxSteps);
     renderColorSwatches();
     renderVisionFields();
     hideSettingsStatus();
@@ -486,6 +493,27 @@
         C.autoContext = C.$settingsAutoContext.checked;
         chrome.storage.local.set({ autoContext: C.autoContext });
       });
+    }
+
+    // Agent 设置
+    var $agentMode = C.shadow.getElementById('settings-agent-mode');
+    if ($agentMode) {
+      $agentMode.addEventListener('change', function() {
+        C.agentMode = $agentMode.checked;
+        chrome.storage.local.set({ agentMode: C.agentMode });
+        if (typeof C.updateAgentToggleUI === 'function') C.updateAgentToggleUI();
+      });
+    }
+    var $agentMaxSteps = C.shadow.getElementById('settings-agent-max-steps');
+    if ($agentMaxSteps) {
+      var saveMaxSteps = function() {
+        var v = parseInt($agentMaxSteps.value);
+        C.agentMaxSteps = isNaN(v) ? 5 : Math.max(0, Math.min(999, v));
+        $agentMaxSteps.value = C.agentMaxSteps;
+        chrome.storage.local.set({ agentMaxSteps: C.agentMaxSteps });
+      };
+      $agentMaxSteps.addEventListener('input', saveMaxSteps);
+      $agentMaxSteps.addEventListener('blur', saveMaxSteps);
     }
   }
 

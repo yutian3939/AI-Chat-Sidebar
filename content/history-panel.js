@@ -59,6 +59,13 @@
 
   function restoreMessagesFromHistory() {
     var C = window.__CTX__;
+    // 如果 index.js 已加载，使用支持 Agent 卡片的新渲染函数
+    if (C.restoreAgentMessages) {
+      C.restoreAgentMessages();
+      scrollToBottom();
+      return;
+    }
+    // 降级：旧版渲染（不支持 Agent 卡片）
     var MD = window.AIChatMD;
     C.$messages.innerHTML = '';
     C.chatHistory.forEach(function(m) {
@@ -66,7 +73,6 @@
       if (/^\[第\d+题\]/.test(m.content)) return;
       if (m.role === 'user') {
         var bubble = addMessageBubble('user', m.content);
-        // 有附件时追加文件名
         if (m._attachments && m._attachments.length > 0) {
           var attachDiv = document.createElement('div');
           attachDiv.className = 'attach-hist';
@@ -81,6 +87,11 @@
         }
       } else if (m.role === 'assistant') {
         addMessageBubble('ai', m.content);
+      } else if (m.role === '_agent_tool') {
+        // 降级渲染 Agent 工具（简单文字）
+        var label = m.name || '工具调用';
+        var icon = {open_tab:'📄',click_element:'🖱️',type_text:'⌨️',get_page_structure:'🔍',get_page_text:'📖',web_search:'🌐',list_tabs:'📑',scroll_page:'↕️',wait_for_element:'⏳',screenshot:'📸',eval_js:'⚡',fetch_webpage:'📥'}[m.name] || '🔧';
+        addMessageBubble('ai', icon + ' ' + label + (m.status === 'error' ? ' ❌ 失败' : m.status === 'done' ? ' ✅ 完成' : ' ⏳ 执行中...'));
       }
     });
     if (C.chatHistory.length === 0) showWelcome();

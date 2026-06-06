@@ -141,6 +141,23 @@ window.AIChatTemplate = function(I) {
             '<div class="color-swatches" id="color-swatches"></div>' +
           '</div>' +
         '</div>' +
+        '<div class="settings-section">' +
+          '<h3>Agent 设置</h3>' +
+          '<p class="settings-hint-sm">开启后 AI 可自动操作浏览器（打开网页、点击、输入等）</p>' +
+          '<label class="switch-row">' +
+            '<span class="switch-label">启用 Agent 模式</span>' +
+            '<span class="switch-track">' +
+              '<input type="checkbox" id="settings-agent-mode">' +
+              '<span class="switch-track-bg"></span>' +
+              '<span class="switch-thumb"></span>' +
+            '</span>' +
+          '</label>' +
+          '<div class="field">' +
+            '<label for="settings-agent-max-steps">最大步数（0 = 不限制）</label>' +
+            '<input type="number" id="settings-agent-max-steps" value="5" min="0" max="999" step="1">' +
+            '<p class="settings-hint-sm">简单任务 3-5 步，复杂任务 8-15 步。输入 0 不限制步数。</p>' +
+          '</div>' +
+        '</div>' +
         '<div class="settings-status" id="settings-status"></div>' +
       '</div>' +
     '</div>' +
@@ -151,9 +168,17 @@ window.AIChatTemplate = function(I) {
       '</button>' +
       '<span class="auto-status" id="auto-status"></span>' +
     '</div>' +
+    // Agent 状态栏
+    '<div class="agent-status-bar" id="agent-status-bar" style="display:none">' +
+      '<span class="agent-dot" id="agent-dot"></span>' +
+      '<span class="agent-text" id="agent-text">Agent 就绪</span>' +
+      '<span class="agent-step" id="agent-step"></span>' +
+      '<button class="agent-stop-btn" id="btn-agent-stop" title="停止Agent">⏹</button>' +
+    '</div>' +
     '<div class="top-row" id="top-row">' +
       '<button class="attach-btn" id="btn-attach" title="添加图片/文件">' + I.PLUS + '</button>' +
       '<button class="attach-btn" id="btn-screenshot" title="框选截图">' + I.SCISSORS + '</button>' +
+      '<button class="attach-btn agent-toggle-btn" id="btn-agent-toggle" title="Agent模式：AI可自动操作浏览器">' + I.AGENT + '</button>' +
       '<div class="attachments-list" id="attachments-list"></div>' +
     '</div>' +
     '<div class="input-area" id="input-area">' +

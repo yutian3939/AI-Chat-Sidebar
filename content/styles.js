@@ -689,6 +689,181 @@ window.AIChatCSS = `
     .attach-tab-item.current {
       background: var(--md-primary-container);
     }
+
+    /* ---- Agent 模式 ---- */
+    /* Agent 开关按钮 */
+    .agent-toggle-btn {
+      position: relative;
+    }
+    .agent-toggle-btn.active {
+      border-color: var(--md-primary);
+      background: var(--md-primary-container);
+      color: var(--md-on-primary-container);
+    }
+    .agent-toggle-btn.active::after {
+      content: '';
+      position: absolute;
+      top: -3px; right: -3px;
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: #4CAF50;
+      border: 2px solid var(--md-surface-container-low);
+      animation: agent-pulse 2s infinite;
+    }
+    @keyframes agent-pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: .6; transform: scale(1.3); }
+    }
+
+    /* Agent 状态栏 */
+    .agent-status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 16px;
+      background: var(--md-surface-container);
+      border-bottom: 1px solid var(--md-outline-variant);
+      font-size: 12px;
+      color: var(--md-on-surface-variant);
+      min-height: 36px;
+    }
+    .agent-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--md-outline);
+      flex-shrink: 0;
+      transition: background .3s;
+    }
+    .agent-dot.thinking {
+      background: var(--md-primary);
+      animation: agent-pulse 1s infinite;
+    }
+    .agent-dot.running {
+      background: #FF9800;
+      animation: agent-pulse .8s infinite;
+    }
+    .agent-dot.done {
+      background: #4CAF50;
+    }
+    .agent-dot.error {
+      background: var(--md-error);
+    }
+    .agent-text {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .agent-step {
+      font-weight: 500;
+      color: var(--md-primary);
+      flex-shrink: 0;
+    }
+    .agent-stop-btn {
+      width: 24px; height: 24px;
+      border-radius: 12px;
+      border: 1px solid var(--md-outline-variant);
+      background: transparent;
+      cursor: pointer;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--md-error);
+      transition: background .15s;
+      line-height: 1;
+      padding: 0;
+      flex-shrink: 0;
+    }
+    .agent-stop-btn:hover {
+      background: var(--md-surface-container-high);
+    }
+
+    /* Agent 工具调用卡片 */
+    .agent-card {
+      align-self: stretch;
+      margin: 4px 0;
+      background: var(--md-surface-container);
+      border: 1px solid var(--md-outline-variant);
+      border-radius: 12px;
+      overflow: hidden;
+      animation: fadeUp .25s ease;
+    }
+    .agent-card-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background .15s;
+      font-size: 13px;
+    }
+    .agent-card-head:hover {
+      background: var(--md-surface-container-high);
+    }
+    .agent-card-icon {
+      font-size: 14px;
+      flex-shrink: 0;
+    }
+    .agent-card-name {
+      font-weight: 500;
+      color: var(--md-on-surface);
+    }
+    .agent-card-status {
+      margin-left: auto;
+      font-size: 11px;
+      flex-shrink: 0;
+    }
+    .agent-card-status.pending {
+      color: var(--md-outline);
+    }
+    .agent-card-status.running {
+      color: #FF9800;
+    }
+    .agent-card-status.done {
+      color: #4CAF50;
+    }
+    .agent-card-status.error {
+      color: var(--md-error);
+    }
+    .agent-card-body {
+      padding: 0 12px 10px;
+      font-size: 12px;
+      color: var(--md-on-surface-variant);
+      border-top: 1px solid var(--md-outline-variant);
+      padding-top: 8px;
+      margin: 0 12px;
+      white-space: pre-wrap;
+      word-break: break-all;
+      max-height: 200px;
+      overflow-y: auto;
+      font-family: 'Cascadia Code', Consolas, monospace;
+      line-height: 1.5;
+      display: none;
+    }
+    .agent-card-body::-webkit-scrollbar {
+      width: 4px;
+    }
+    .agent-card-body::-webkit-scrollbar-thumb {
+      background: var(--md-outline-variant);
+      border-radius: 2px;
+    }
+    .agent-card-body.open {
+      display: block;
+    }
+    .agent-card-body .collapse-arrow {
+      transition: transform .2s;
+      display: inline-block;
+    }
+    .agent-card-head .collapse-arrow {
+      font-size: 10px;
+      color: var(--md-outline);
+      transition: transform .25s;
+    }
+    .agent-card-head .collapse-arrow.open {
+      transform: rotate(90deg);
+    }
 `;
 
 // ============================================================

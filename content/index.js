@@ -57,6 +57,12 @@
     editingProviderId: 'openai',
     isComposing: false,
 
+    // Agent 模式
+    agentMode: false,
+    agentRunning: false,
+    agentMaxSteps: 5,
+    agentToolCards: {},
+
     // 视觉模型 + 附件
     visionMode: 'none',
     visionModelProvider: 'openai',
@@ -100,7 +106,11 @@
     autoResize: null,
     saveConversation: HP.saveConversation,
     doSend: null,
-    sendMessage: null
+    sendMessage: null,
+    stopAgent: null,
+    // Agent 恢复渲染函数 — 供 history-panel 和跨标签页同步使用
+    restoreAgentMessages: null,
+    restoreAgentToolCard: null
   };
 
   const C = window.__CTX__;
@@ -146,16 +156,19 @@
     C.themePref = theme || 'system';
     applyTheme(C.themePref);
   });
-  chrome.storage.local.get(['colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'skipAnswered', 'autoContext'], (data) => {
+  chrome.storage.local.get(['colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'skipAnswered', 'autoContext', 'agentMode', 'agentMaxSteps'], (data) => {
     C.colorScheme = data.colorScheme || 'purple';
     C.visionMode = data.visionMode || 'none';
     C.visionModelProvider = data.visionModelProvider || 'openai';
     C.visionModel = data.visionModel || '';
     C.skipAnswered = data.skipAnswered !== false;
     C.autoContext = !!data.autoContext;
+    C.agentMode = !!data.agentMode;
+    C.agentMaxSteps = data.agentMaxSteps != null ? data.agentMaxSteps : 5;
     C.host.setAttribute('data-theme', getCurrentMode());
     applyColorScheme(C.colorScheme);
     if (C.$settingsAutoContext) C.$settingsAutoContext.checked = C.autoContext;
+    updateAgentToggleUI();
   });
 
   // ======================== 创建 Shadow DOM ========================
@@ -233,6 +246,13 @@
   C.$settingsQuickShot = shadow.getElementById('settings-quick-shot');
   C.$settingsAutoContext = shadow.getElementById('settings-auto-context');
   C.$fileInput = shadow.getElementById('file-input');
+  // Agent DOM
+  C.$agentStatusBar = shadow.getElementById('agent-status-bar');
+  C.$agentDot = shadow.getElementById('agent-dot');
+  C.$agentText = shadow.getElementById('agent-text');
+  C.$agentStep = shadow.getElementById('agent-step');
+  C.$btnAgentToggle = shadow.getElementById('btn-agent-toggle');
+  C.$btnAgentStop = shadow.getElementById('btn-agent-stop');
 
   // ======================== 侧边栏宽度 ========================
   chrome.storage.sync.get('sidebarWidth', ({ sidebarWidth: sw }) => {
@@ -280,12 +300,69 @@
   });
 
   // ======================== 侧边栏控制 ========================
+  var _pollTimer = null;
+  var _lastSyncCounter = -1;
+
+  function startSyncPoll() {
+    stopSyncPoll();
+    _pollTimer = setInterval(function() {
+      if (C.agentRunning) return; // 自己是 Agent 运行者，不干扰
+      chrome.storage.local.get(['_agentSync', 'conversations', 'currentConvId'], function(data) {
+        var sync = data._agentSync;
+        if (!sync) return;
+        if (sync.counter === _lastSyncCounter) return;
+        _lastSyncCounter = sync.counter;
+
+        // 有活跃 Agent 会话 → 切换过去并显示状态栏
+        if (sync.convId) {
+          C.currentConvId = sync.convId;
+        }
+        if (sync.running && sync.convId) {
+          if (!C.agentRunning) {
+            updateAgentStatusBar(true);
+            updateAgentDot('running');
+            if (C.$agentText) C.$agentText.textContent = 'Agent 运行中';
+            if (C.$agentStep) {
+              var ms = sync.maxSteps > 100 ? '不限制' : sync.maxSteps;
+              C.$agentStep.textContent = '步骤 ' + (sync.step||0) + '/' + ms;
+            }
+          }
+        } else if (!sync.running && !C.agentRunning) {
+          updateAgentStatusBar(false);
+        } else if (!sync.running) {
+          updateAgentDot('done');
+          if (C.$agentText) C.$agentText.textContent = 'Agent 已完成';
+        }
+
+        C.conversations = data.conversations || [];
+        if (C.currentConvId && C.$messages) {
+          var conv = C.conversations.find(function(c) { return c.id === C.currentConvId; });
+          if (conv) {
+            C.chatHistory = conv.messages.slice();
+            C.autoAnswerData = conv.autoAnswerData || null;
+            C.$messages.innerHTML = '';
+            restoreAgentMessagesFromHistory();
+            HP.scrollToBottom();
+          }
+        }
+      });
+    }, 800);
+  }
+
+  function stopSyncPoll() {
+    if (_pollTimer) { clearInterval(_pollTimer); _pollTimer = null; }
+  }
+
   function toggleSidebar(force) {
     C.sidebarOpen = typeof force === 'boolean' ? force : !C.sidebarOpen;
     sidebar.classList.toggle('open', C.sidebarOpen);
     fab.classList.toggle('open', C.sidebarOpen);
     if (C.sidebarOpen) {
       fab.style.right = (C.sidebarWidth + 12) + 'px';
+      // 立即加载最新数据
+      syncFromStorage();
+      // 启动轮询：每 800ms 检查是否有新步骤
+      startSyncPoll();
       C.isHomework = !!document.querySelector('.questionLi[typename="单选题"]');
       C.$autoRow.style.display = C.isHomework ? 'flex' : 'none';
       if (C.isHomework) C.$autoStatus.textContent = '';
@@ -295,6 +372,7 @@
       }
       setTimeout(() => C.$input.focus(), 320);
     } else {
+      stopSyncPoll();
       fab.style.right = '';
     }
   }
@@ -411,6 +489,112 @@
     C.$sendBtn.disabled = true;
     HP.addLoading();
 
+    // ======== Agent 模式 vs 普通模式 ========
+    if (C.agentMode) {
+      // 检查是否有其他标签页的 Agent 在运行
+      var syncCheck = await chrome.storage.local.get(['_agentSync']);
+      if (syncCheck._agentSync && syncCheck._agentSync.running && !C.agentRunning) {
+        // 其他标签页的 Agent 正在执行 → 转发消息给 background
+        HP.removeLoading();
+        chrome.runtime.sendMessage({ type: 'agent-input', text: fullUserText, convId: syncCheck._agentSync.convId });
+        C.isStreaming = false;
+        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
+        // 切到 Agent 的会话
+        C.currentConvId = syncCheck._agentSync.convId;
+        return;
+      }
+
+      // 没有活跃 Agent 或自己是发起者 → 启动新 Agent
+      C.agentRunning = true;
+      C.agentToolCards = {};
+      updateAgentStatusBar(true);
+
+      C.currentPort = chrome.runtime.connect({ name: 'ai-chat' });
+      let aiBubble = null;
+      let fullText = '';
+
+      C.currentPort.onMessage.addListener((msg) => {
+        if (msg.type === 'agent-thinking') {
+          updateAgentDot('thinking');
+          if (C.$agentStep) C.$agentStep.textContent = msg.maxSteps > 100 ? `步骤 ${msg.step}/不限制` : `步骤 ${msg.step}/${msg.maxSteps}`;
+          if (C.$agentText) C.$agentText.textContent = '正在思考...';
+        } else if (msg.type === 'agent-tool-start') {
+          updateAgentDot('running');
+          const toolLabel = getToolLabel(msg.name);
+          if (C.$agentText) C.$agentText.textContent = `执行: ${toolLabel}`;
+          // 存入 chatHistory
+          C.chatHistory.push({ role: '_agent_tool', toolCallId: msg.toolCallId, name: msg.name, args: msg.args, status: 'running' });
+          agentSaveToDisk();
+          addAgentToolCard(msg.toolCallId, msg.name, msg.args);
+        } else if (msg.type === 'agent-tool-result') {
+          updateAgentDot('thinking');
+          // 更新 chatHistory 中对应的 _agent_tool
+          var toolIdx = -1;
+          for (var i = C.chatHistory.length - 1; i >= 0; i--) {
+            if (C.chatHistory[i].role === '_agent_tool' && C.chatHistory[i].toolCallId === msg.toolCallId) {
+              toolIdx = i; break;
+            }
+          }
+          if (toolIdx >= 0) {
+            C.chatHistory[toolIdx].status = msg.error ? 'error' : 'done';
+            C.chatHistory[toolIdx].result = msg.result;
+            C.chatHistory[toolIdx].error = msg.error || null;
+          }
+          agentSaveToDisk();
+          updateAgentToolCard(msg.toolCallId, msg.result, msg.error);
+        } else if (msg.type === 'chunk') {
+          if (!aiBubble) {
+            HP.removeLoading();
+            updateAgentDot('done');
+            aiBubble = HP.addMessage('ai', '');
+          }
+          fullText += msg.content;
+          aiBubble.innerHTML = MD.renderMarkdown(fullText) + '<span class="cursor-blink"></span>';
+          HP.scrollToBottom();
+        } else if (msg.type === 'error') {
+          HP.removeLoading();
+          updateAgentDot('error');
+          HP.addError(msg.content);
+          C.chatHistory.push({ role: 'assistant', content: '❌ ' + msg.content });
+          finishAgent();
+          HP.saveConversation();
+        } else if (msg.type === 'done') {
+          HP.removeLoading();
+          if (aiBubble) {
+            aiBubble.innerHTML = MD.renderMarkdown(fullText);
+          }
+          if (fullText) {
+            C.chatHistory.push({ role: 'assistant', content: fullText });
+          }
+          updateAgentDot('done');
+          finishAgent();
+          HP.saveConversation();
+        }
+      });
+
+      C.currentPort.onDisconnect.addListener(() => {
+        HP.removeLoading();
+        if (C.agentRunning) {
+          if (aiBubble) aiBubble.innerHTML = MD.renderMarkdown(fullText);
+          if (fullText) {
+            C.chatHistory.push({ role: 'assistant', content: fullText });
+          }
+          finishAgent();
+          HP.saveConversation();
+        }
+      });
+
+      C.currentPort.postMessage({
+        type: 'agent-init',
+        convId: C.currentConvId,
+        history: C.chatHistory.slice(),
+        maxSteps: C.agentMaxSteps,
+        visionMode: C.visionMode
+      });
+      return;
+    }
+
+    // 普通模式（不变）
     C.currentPort = chrome.runtime.connect({ name: 'ai-chat' });
     let aiBubble = null;
     let fullText = '';
@@ -474,6 +658,216 @@
     await doSend(text);
   }
   C.sendMessage = sendMessage;
+
+  // ======================== Agent 辅助函数 ========================
+
+  // 递增的同步计数器，确保每次 Agent 步骤都触发跨标签页 onChanged
+  var _agentSyncCounter = 0;
+
+  function agentSaveToDisk() {
+    // 如果没有 convId，自动创建（确保第一次 Agent 步骤就写入 storage）
+    if (!C.currentConvId) C.currentConvId = 'conv_' + Date.now();
+    if (C.chatHistory.length === 0) return;
+    var idx = C.conversations.findIndex(function(c) { return c.id === C.currentConvId; });
+    var conv = {
+      id: C.currentConvId,
+      title: HP.genConvTitle(),
+      messages: C.chatHistory.slice(),
+      updatedAt: Date.now(),
+      createdAt: idx >= 0 ? C.conversations[idx].createdAt : Date.now(),
+      autoAnswerData: C.autoAnswerData ? Object.assign({}, C.autoAnswerData) : null
+    };
+    if (idx >= 0) C.conversations[idx] = conv;
+    else C.conversations.unshift(conv);
+
+    _agentSyncCounter++;
+    chrome.storage.local.set({
+      conversations: C.conversations,
+      currentConvId: C.currentConvId,
+      _agentSync: {
+        counter: _agentSyncCounter,
+        convId: C.currentConvId,
+        running: C.agentRunning,
+        updatedAt: Date.now()
+      }
+    });
+  }
+
+  function finishAgent() {
+    C.agentRunning = false;
+    C.isStreaming = false;
+    C.currentPort = null;
+    C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
+    updateAgentStatusBar(false);
+    _agentSyncCounter++;
+    chrome.storage.local.set({
+      _agentSync: {
+        counter: _agentSyncCounter,
+        convId: C.currentConvId,
+        running: false,
+        updatedAt: Date.now()
+      }
+    });
+  }
+
+  function updateAgentToggleUI() {
+    if (!C.$btnAgentToggle) return;
+    if (C.agentMode) {
+      C.$btnAgentToggle.classList.add('active');
+      C.$btnAgentToggle.title = 'Agent模式已开启 - 点击关闭';
+    } else {
+      C.$btnAgentToggle.classList.remove('active');
+      C.$btnAgentToggle.title = 'Agent模式：AI可自动操作浏览器';
+    }
+  }
+  C.updateAgentToggleUI = updateAgentToggleUI;
+
+  function updateAgentStatusBar(show) {
+    if (!C.$agentStatusBar) return;
+    C.$agentStatusBar.style.display = show ? 'flex' : 'none';
+    if (!show) {
+      updateAgentDot('');
+      if (C.$agentText) C.$agentText.textContent = '';
+      if (C.$agentStep) C.$agentStep.textContent = '';
+    }
+  }
+
+  function updateAgentDot(state) {
+    if (!C.$agentDot) return;
+    C.$agentDot.className = 'agent-dot';
+    if (state) C.$agentDot.classList.add(state);
+  }
+
+  function getToolLabel(name) {
+    const labels = {
+      open_tab: '打开网页', click_element: '点击元素', type_text: '输入文本',
+      get_page_structure: '分析页面', get_page_text: '读取页面',
+      web_search: '搜索网页', list_tabs: '列出标签页', scroll_page: '滚动页面',
+      wait_for_element: '等待元素', screenshot: '截取页面', eval_js: '执行脚本',
+      fetch_webpage: '获取网页'
+    };
+    return labels[name] || name;
+  }
+
+  function getToolIcon(name) {
+    const icons = {
+      open_tab: '📄', click_element: '🖱️', type_text: '⌨️',
+      get_page_structure: '🔍', get_page_text: '📖', web_search: '🌐',
+      list_tabs: '📑', scroll_page: '↕️', wait_for_element: '⏳',
+      screenshot: '📸', eval_js: '⚡', fetch_webpage: '📥'
+    };
+    return icons[name] || '🔧';
+  }
+
+  function addAgentToolCard(toolCallId, name, argsStr) {
+    C.agentToolCards[toolCallId] = { name };
+    // 移除loading
+    HP.removeLoading();
+    const wrap = document.createElement('div');
+    wrap.className = 'msg ai';
+    wrap.id = 'agent-card-' + toolCallId;
+    const card = document.createElement('div');
+    const label = getToolLabel(name);
+    const icon = getToolIcon(name);
+    let argsDisplay = '';
+    try {
+      const parsed = JSON.parse(argsStr);
+      argsDisplay = JSON.stringify(parsed, null, 1)
+        .replace(/[{}"]/g, '').replace(/^\s*|\s*$/gm, '')
+        .replace(/\n/g, ', ').slice(0, 150);
+    } catch { argsDisplay = argsStr.slice(0, 150); }
+
+    card.className = 'agent-card';
+    card.innerHTML =
+      '<div class="agent-card-head agent-card-toggle">' +
+        '<span class="collapse-arrow">▶</span>' +
+        '<span class="agent-card-icon">' + icon + '</span>' +
+        '<span class="agent-card-name">' + label + '</span>' +
+        '<span class="agent-card-args" style="font-size:11px;color:var(--md-on-surface-variant);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">' + MD.escapeHtml(argsDisplay) + '</span>' +
+        '<span class="agent-card-status running">执行中...</span>' +
+      '</div>' +
+      '<div class="agent-card-body"></div>';
+    wrap.appendChild(card);
+    C.$messages.appendChild(wrap);
+
+    // 折叠/展开
+    card.querySelector('.agent-card-toggle').addEventListener('click', function() {
+      const body = card.querySelector('.agent-card-body');
+      const arrow = card.querySelector('.collapse-arrow');
+      body.classList.toggle('open');
+      arrow.classList.toggle('open');
+    });
+
+    HP.scrollToBottom();
+  }
+
+  function updateAgentToolCard(toolCallId, resultStr, error) {
+    const wrap = C.shadow.getElementById('agent-card-' + toolCallId);
+    if (!wrap) return;
+    const statusEl = wrap.querySelector('.agent-card-status');
+    const bodyEl = wrap.querySelector('.agent-card-body');
+
+    if (error) {
+      if (statusEl) { statusEl.textContent = '失败'; statusEl.className = 'agent-card-status error'; }
+      if (bodyEl) bodyEl.textContent = '错误: ' + error;
+    } else {
+      if (statusEl) { statusEl.textContent = '完成'; statusEl.className = 'agent-card-status done'; }
+      if (bodyEl) {
+        let displayText;
+        try {
+          const parsed = JSON.parse(resultStr);
+          displayText = JSON.stringify(parsed, null, 2);
+        } catch { displayText = resultStr; }
+        if (displayText.length > 5000) displayText = displayText.slice(0, 5000) + '\n...(截断)';
+        bodyEl.textContent = displayText;
+      }
+    }
+
+    // 更新工具名后面的参数（压缩显示）
+    const argsEl = wrap.querySelector('.agent-card-args');
+    if (argsEl && !error) {
+      try {
+        const parsed = JSON.parse(resultStr);
+        const summary = typeof parsed.success !== 'undefined' ? (parsed.success ? '✓ 成功' : '✗ 失败')
+          : parsed.tabId ? '✓ Tab#' + parsed.tabId
+          : parsed.count !== undefined ? '✓ ' + parsed.count + '项'
+          : '✓ 完成';
+        if (summary.length < 30) argsEl.textContent = summary;
+      } catch {}
+    }
+  }
+
+  function stopAgent() {
+    // 通过 runtime 通知 background 停止全局 Agent 会话
+    chrome.runtime.sendMessage({ type: 'agent-stop' });
+    if (C.currentPort && C.agentRunning) {
+      C.currentPort.disconnect();
+      finishAgent();
+      HP.removeLoading();
+    }
+    // 即使自己没有在跑，也清理本地状态
+    if (!C.agentRunning) {
+      finishAgent();
+      HP.removeLoading();
+    }
+  }
+  C.stopAgent = stopAgent;
+
+  // Agent 开关按钮
+  if (C.$btnAgentToggle) {
+    C.$btnAgentToggle.addEventListener('click', function() {
+      if (C.isStreaming) return;
+      C.agentMode = !C.agentMode;
+      updateAgentToggleUI();
+      updateAgentStatusBar(false);
+      chrome.storage.local.set({ agentMode: C.agentMode });
+    });
+  }
+
+  // Agent 停止按钮
+  if (C.$btnAgentStop) {
+    C.$btnAgentStop.addEventListener('click', stopAgent);
+  }
 
   // ======================== 事件绑定 ========================
 
@@ -844,8 +1238,151 @@
   AA.bindEvents();
   if (SS) { SS.bindEvents(); SS.loadPrefs(); }
 
+  // ======================== 跨标签页会话同步 ========================
+  // 打开侧边栏 / 新标签页加载时，从 storage 拉取最新会话数据
+
+  function syncFromStorage() {
+    chrome.storage.local.get(['currentConvId', 'conversations', '_agentSync'], function(data) {
+      // 不覆盖正在运行 Agent 的当前标签页
+      if (C.agentRunning) return;
+
+      var sync = data._agentSync;
+      // 如果有活跃 Agent 会话，自动切到它
+      if (sync && sync.running && sync.convId) {
+        C.currentConvId = sync.convId;
+      } else if (!C.currentConvId) {
+        C.currentConvId = data.currentConvId || null;
+      }
+
+      C.conversations = data.conversations || [];
+
+      if (C.currentConvId && C.$messages) {
+        var conv = C.conversations.find(function(c) { return c.id === C.currentConvId; });
+        if (conv) {
+          C.chatHistory = conv.messages.slice();
+          C.autoAnswerData = conv.autoAnswerData || null;
+          C.$messages.innerHTML = '';
+          restoreAgentMessagesFromHistory();
+          HP.scrollToBottom();
+        }
+        // 如果没有找到 conv（边缘情况），至少清空以免显示旧数据
+        else if (C.chatHistory.length > 0) {
+          // 有 _agentSync 但没有对应的 conversation → 可能正在写入中，稍后再试
+          // 不清空当前数据
+        }
+      }
+    });
+  }
+
+  function checkAgentSessionOnInit() {
+    syncFromStorage();
+    // Agent 打开的新标签页自动展开侧边栏（轮询等待 background 写入 storage）
+    var _fastRetry = 0;
+    var _fastPoll = function() {
+      chrome.storage.local.get(['_agentSync'], function(d) {
+        _fastRetry++;
+        var has = !!(d._agentSync && d._agentSync.running && d._agentSync.convId);
+        if (has) {
+          C.currentConvId = d._agentSync.convId;
+          syncFromStorage();
+          startSyncPoll();
+          updateAgentStatusBar(true);
+          updateAgentDot('running');
+          if (C.$agentText) C.$agentText.textContent = 'Agent 运行中';
+          if (C.$agentStep) {
+            var ms = d._agentSync.maxSteps > 100 ? '不限制' : d._agentSync.maxSteps;
+            C.$agentStep.textContent = '步骤 ' + (d._agentSync.step||0) + '/' + ms;
+          }
+          if (!C.sidebarOpen) toggleSidebar(true);
+        } else if (_fastRetry < 15) {
+          setTimeout(_fastPoll, 200);
+        }
+      });
+    };
+    _fastPoll();
+  }
+
+  // 渲染带 Agent 卡片的历史消息（同时被 HP.restoreMessagesFromHistory 和跨标签页同步使用）
+  function restoreAgentMessagesFromHistory() {
+    if (!C.$messages) return;
+    C.$messages.innerHTML = '';
+    C.chatHistory.forEach(function(m) {
+      if (m._auto) return;
+      if (/^\[第\d+题\]/.test(m.content)) return;
+      if (m.role === 'user') {
+        var bubble = HP.addMessageBubble('user', m.content);
+        if (m._attachments && m._attachments.length > 0) {
+          var attachDiv = document.createElement('div');
+          attachDiv.className = 'attach-hist';
+          m._attachments.forEach(function(a) {
+            var isImg = (a.type || '').startsWith('image/');
+            var chip = document.createElement('span');
+            chip.className = 'attach-hist-chip';
+            chip.textContent = (isImg ? '\u{1F4F7} ' : '\u{1F4C4} ') + MD.escapeHtml(a.name);
+            attachDiv.appendChild(chip);
+          });
+          bubble.appendChild(attachDiv);
+        }
+      } else if (m.role === 'assistant') {
+        HP.addMessageBubble('ai', m.content);
+      } else if (m.role === '_agent_tool') {
+        // 恢复 Agent 工具卡片
+        restoreAgentToolCard(m);
+      }
+    });
+    if (C.chatHistory.length === 0) HP.showWelcome();
+  }
+
+  function restoreAgentToolCard(m) {
+    var wrap = document.createElement('div');
+    wrap.className = 'msg ai';
+    var card = document.createElement('div');
+    var label = getToolLabel(m.name);
+    var icon = getToolIcon(m.name);
+    var statusClass = m.status === 'done' ? 'done' : (m.status === 'error' ? 'error' : 'running');
+    var statusText = m.status === 'done' ? '完成' : (m.status === 'error' ? '失败' : '执行中...');
+    var argsDisplay = '';
+    try {
+      var parsed = JSON.parse(m.args);
+      argsDisplay = JSON.stringify(parsed, null, 1)
+        .replace(/[{}"]/g, '').replace(/^\s*|\s*$/gm, '')
+        .replace(/\n/g, ', ').slice(0, 150);
+    } catch(e) { argsDisplay = (m.args || '').slice(0, 150); }
+
+    var resultDisplay = '';
+    if (m.result) {
+      resultDisplay = m.result;
+      if (resultDisplay.length > 5000) resultDisplay = resultDisplay.slice(0, 5000) + '\n...(截断)';
+    }
+
+    card.className = 'agent-card';
+    card.innerHTML =
+      '<div class="agent-card-head agent-card-toggle">' +
+        '<span class="collapse-arrow">▶</span>' +
+        '<span class="agent-card-icon">' + icon + '</span>' +
+        '<span class="agent-card-name">' + label + '</span>' +
+        '<span class="agent-card-args" style="font-size:11px;color:var(--md-on-surface-variant);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px">' + MD.escapeHtml(argsDisplay) + '</span>' +
+        '<span class="agent-card-status ' + statusClass + '">' + statusText + '</span>' +
+      '</div>' +
+      '<div class="agent-card-body">' + (resultDisplay ? MD.escapeHtml(resultDisplay) : (m.error || '')) + '</div>';
+    wrap.appendChild(card);
+    C.$messages.appendChild(wrap);
+
+    card.querySelector('.agent-card-toggle').addEventListener('click', function() {
+      var body = card.querySelector('.agent-card-body');
+      var arrow = card.querySelector('.collapse-arrow');
+      body.classList.toggle('open');
+      arrow.classList.toggle('open');
+    });
+  }
+
+  C.restoreAgentMessages = restoreAgentMessagesFromHistory;
+  C.restoreAgentToolCard = restoreAgentToolCard;
+
   // ======================== 挂载 ========================
   await HP.loadConversations();
   document.documentElement.appendChild(host);
+  // 检查是否有正在运行的 Agent 会话（其他标签页可能正在执行）
+  checkAgentSessionOnInit();
 
 })();
