@@ -182,7 +182,7 @@
     renderProviderSelect();
     renderModelChips();
     renderCurrentModelSelect();
-    showSettingsStatus('供应商已保存', 'success');
+    showSettingsStatus('供应商已保存', 'success', C.$btnSettingsSave);
   }
 
   async function deleteProvider() {

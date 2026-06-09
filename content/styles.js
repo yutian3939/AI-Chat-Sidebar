@@ -65,10 +65,10 @@ window.AIChatCSS = `
     /* ---- 头部 ---- */
     .header {
       display: flex; align-items: center; gap: 8px;
-      padding: 12px 16px;
+      padding: 6px 16px;
       background: var(--md-surface-container);
       border-bottom: 1px solid var(--md-outline-variant);
-      min-height: 64px;
+      min-height: 48px;
     }
     .header-icon { width: 32px; height: 32px; fill: var(--md-primary); flex-shrink: 0; }
     .header-title {
@@ -613,6 +613,10 @@ window.AIChatCSS = `
     .test-inline-status.success { color: #2E7D32; }
     :host([data-theme="dark"]) .test-inline-status.success { color: #81C784; }
     .test-inline-status.error { color: var(--md-error); }
+    /* 全宽按钮下方的内联状态（如"保存供应商"） */
+    #btn-settings-save + .test-inline-status {
+      display: block; margin-left: 0; margin-top: 6px; text-align: center; height: auto; font-size: 13px;
+    }
 
     /* ---- 主题颜色选择器 ---- */
     .color-swatches { display: flex; gap: 10px; flex-wrap: wrap; }
