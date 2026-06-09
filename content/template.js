@@ -128,20 +128,6 @@ window.AIChatTemplate = function(I) {
           '</label>' +
         '</div>' +
         '<div class="settings-section">' +
-          '<h3>主题</h3>' +
-          '<div class="field">' +
-            '<select id="settings-theme">' +
-              '<option value="system">跟随系统</option>' +
-              '<option value="light">浅色</option>' +
-              '<option value="dark">深色</option>' +
-            '</select>' +
-          '</div>' +
-          '<div class="field">' +
-            '<label>主题颜色</label>' +
-            '<div class="color-swatches" id="color-swatches"></div>' +
-          '</div>' +
-        '</div>' +
-        '<div class="settings-section">' +
           '<h3>Agent 设置</h3>' +
           '<p class="settings-hint-sm">开启后 AI 可自动操作浏览器（打开网页、点击、输入等）</p>' +
           '<label class="switch-row">' +
@@ -156,6 +142,20 @@ window.AIChatTemplate = function(I) {
             '<label for="settings-agent-max-steps">最大步数（0 = 不限制）</label>' +
             '<input type="number" id="settings-agent-max-steps" value="5" min="0" max="999" step="1">' +
             '<p class="settings-hint-sm">简单任务 3-5 步，复杂任务 8-15 步。输入 0 不限制步数。</p>' +
+          '</div>' +
+        '</div>' +
+        '<div class="settings-section">' +
+          '<h3>主题</h3>' +
+          '<div class="field">' +
+            '<select id="settings-theme">' +
+              '<option value="system">跟随系统</option>' +
+              '<option value="light">浅色</option>' +
+              '<option value="dark">深色</option>' +
+            '</select>' +
+          '</div>' +
+          '<div class="field">' +
+            '<label>主题颜色</label>' +
+            '<div class="color-swatches" id="color-swatches"></div>' +
           '</div>' +
         '</div>' +
         '<div class="settings-status" id="settings-status"></div>' +

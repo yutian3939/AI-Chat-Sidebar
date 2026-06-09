@@ -314,7 +314,7 @@
         _lastSyncCounter = sync.counter;
 
         // 有活跃 Agent 会话 → 切换过去并显示状态栏
-        if (sync.convId) {
+        if (sync.running && sync.convId) {
           C.currentConvId = sync.convId;
         }
         if (sync.running && sync.convId) {
