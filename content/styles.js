@@ -868,6 +868,36 @@ window.AIChatCSS = `
     .agent-card-head .collapse-arrow.open {
       transform: rotate(90deg);
     }
+
+    /* ---- 版本 & 更新检查 ---- */
+    .version-row {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 4px 0;
+    }
+    .version-label { font-size: 13px; color: var(--md-on-surface-variant); }
+    .version-value { font-size: 13px; font-weight: 500; color: var(--md-on-surface); }
+    .version-link { font-size: 13px; color: var(--md-primary); }
+    .version-link:hover { text-decoration: underline; }
+    .update-status {
+      margin-top: 8px; font-size: 13px; line-height: 1.5;
+      display: none;
+    }
+    .update-status.show { display: block; }
+    .update-status.up-to-date { color: #2E7D32; }
+    :host([data-theme="dark"]) .update-status.up-to-date { color: #81C784; }
+    .update-status.has-update { color: #E65100; }
+    .update-status.error { color: var(--md-error); }
+    .update-status a { color: var(--md-primary); text-decoration: underline; }
+
+    /* 设置按钮更新红点 */
+    .icon-btn.has-update { position: relative; }
+    .icon-btn.has-update::after {
+      content: '';
+      position: absolute; top: 8px; right: 8px;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--md-error);
+      border: 2px solid var(--md-surface-container);
+    }
 `;
 
 // ============================================================

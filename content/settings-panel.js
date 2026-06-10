@@ -3,6 +3,9 @@
 // 通过 window.__CTX__ 获取共享状态和 DOM 引用
 // ============================================================
 'use strict';
+
+// 项目地址（与 background.js 保持一致）
+var PROJECT_URL = 'https://github.com/yutian3939/AI-Chat-Sidebar';
 (function() {
 
   var DEFAULT_PROVIDERS = [
@@ -303,6 +306,7 @@
     renderColorSwatches();
     renderVisionFields();
     hideSettingsStatus();
+    showVersionInfo();
   }
 
   // ======================== 视觉模型 ========================
@@ -514,6 +518,74 @@
       };
       $agentMaxSteps.addEventListener('input', saveMaxSteps);
       $agentMaxSteps.addEventListener('blur', saveMaxSteps);
+    }
+
+    // 检查更新按钮
+    if (C.$btnCheckUpdate) {
+      C.$btnCheckUpdate.addEventListener('click', checkUpdateFromPanel);
+    }
+
+    // 项目地址链接（用 window.open 避开 Shadow DOM 限制）
+    if (C.$settingsProjectUrl) {
+      C.$settingsProjectUrl.addEventListener('click', function(e) {
+        e.preventDefault();
+        window.open(PROJECT_URL, '_blank');
+      });
+    }
+  }
+
+  // ======================== 版本 & 更新检查 ========================
+
+  function showVersionInfo() {
+    var C = window.__CTX__;
+    var ver = chrome.runtime.getManifest().version;
+    if (C.$settingsVersion) C.$settingsVersion.textContent = 'v' + ver;
+    // 设置项目地址（同步，确保点击时 href 已生效）
+    if (C.$settingsProjectUrl) {
+      C.$settingsProjectUrl.href = PROJECT_URL;
+      C.$settingsProjectUrl.title = PROJECT_URL;
+    }
+    // 隐藏旧的更新状态
+    if (C.$updateStatus) {
+      C.$updateStatus.className = 'update-status';
+      C.$updateStatus.textContent = '';
+    }
+  }
+
+  async function checkUpdateFromPanel() {
+    var C = window.__CTX__;
+    if (!C.$btnCheckUpdate) return;
+    C.$btnCheckUpdate.disabled = true;
+    C.$btnCheckUpdate.textContent = '检查中...';
+
+    try {
+      var result = await chrome.runtime.sendMessage({ type: 'check-update' });
+      showUpdateResult(result, C);
+    } catch (err) {
+      showUpdateResult({ error: '检查失败: ' + err.message }, C);
+    } finally {
+      if (C.$btnCheckUpdate) {
+        C.$btnCheckUpdate.disabled = false;
+        C.$btnCheckUpdate.textContent = '检查更新';
+      }
+    }
+  }
+
+  function showUpdateResult(result, C) {
+    var el = C.$updateStatus;
+    if (!el) return;
+    el.className = 'update-status show';
+
+    if (result && result.hasUpdate) {
+      el.classList.add('has-update');
+      el.innerHTML = '发现新版本 <b>v' + (result.latestVersion || '') + '</b>（当前 v' + (result.currentVersion || '') + '）'
+        + '<br><a href="' + (result.projectUrl || '#') + '" target="_blank">前往项目主页查看更新</a>';
+    } else if (result && result.error) {
+      el.classList.add('error');
+      el.textContent = result.error;
+    } else {
+      el.classList.add('up-to-date');
+      el.textContent = '已是最新版本 v' + (result.currentVersion || '');
     }
   }
 

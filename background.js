@@ -3,6 +3,10 @@
 // 处理 API 请求、中继流式响应
 // ============================================================
 
+// ---- 更新检查配置 ----
+const UPDATE_MANIFEST_URL = 'https://raw.githubusercontent.com/yutian3939/AI-Chat-Sidebar/main/manifest.json';
+const PROJECT_URL = 'https://github.com/yutian3939/AI-Chat-Sidebar';
+
 const DEFAULT_SETTINGS = {
   apiEndpoint: 'https://api.openai.com/v1',
   apiKey: '',
@@ -108,6 +112,18 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   if (msg.type === 'agent-stop') {
     if (agentSession) { agentSession.controller.abort(); agentSession = null; }
     sendResponse({ ok: true });
+    return false;
+  }
+
+  // 检查更新
+  if (msg.type === 'check-update') {
+    checkUpdate().then(sendResponse);
+    return true;
+  }
+
+  // 获取项目地址
+  if (msg.type === 'get-project-url') {
+    sendResponse({ url: PROJECT_URL });
     return false;
   }
 });
@@ -1564,5 +1580,35 @@ async function tool_fetchWebpage(args) {
     return { url, textLength: text.length, text };
   } catch (err) {
     return { error: '获取网页失败: ' + err.message };
+  }
+}
+
+// ---- 更新检查 ----
+function compareVersion(a, b) {
+  var pa = (a || '0.0.0').split('.').map(Number);
+  var pb = (b || '0.0.0').split('.').map(Number);
+  for (var i = 0; i < 3; i++) {
+    if (pa[i] > pb[i]) return 1;
+    if (pa[i] < pb[i]) return -1;
+  }
+  return 0;
+}
+
+async function checkUpdate() {
+  var current = chrome.runtime.getManifest().version;
+  try {
+    var resp = await fetch(UPDATE_MANIFEST_URL, { cache: 'no-cache' });
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var remote = await resp.json();
+    var latest = remote.version;
+    var isNewer = compareVersion(latest, current) > 0;
+    return {
+      currentVersion: current,
+      latestVersion: latest || '',
+      hasUpdate: isNewer,
+      projectUrl: PROJECT_URL
+    };
+  } catch (err) {
+    return { error: '检查失败: ' + err.message, currentVersion: current, projectUrl: PROJECT_URL };
   }
 }

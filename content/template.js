@@ -158,6 +158,19 @@ window.AIChatTemplate = function(I) {
             '<div class="color-swatches" id="color-swatches"></div>' +
           '</div>' +
         '</div>' +
+        '<div class="settings-section">' +
+          '<h3>关于</h3>' +
+          '<div class="version-row">' +
+            '<span class="version-label">当前版本</span>' +
+            '<span class="version-value" id="settings-version">v1.0.0</span>' +
+          '</div>' +
+          '<div class="version-row" style="margin-top:4px">' +
+            '<span class="version-label">项目地址</span>' +
+            '<a class="version-link" id="settings-project-url" href="javascript:void(0)">GitHub</a>' +
+          '</div>' +
+          '<button class="settings-btn outline" id="btn-check-update" style="width:100%;justify-content:center;margin-top:8px">检查更新</button>' +
+          '<div class="update-status" id="update-status"></div>' +
+        '</div>' +
         '<div class="settings-status" id="settings-status"></div>' +
       '</div>' +
     '</div>' +

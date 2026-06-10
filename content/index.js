@@ -253,6 +253,12 @@
   C.$agentStep = shadow.getElementById('agent-step');
   C.$btnAgentToggle = shadow.getElementById('btn-agent-toggle');
   C.$btnAgentStop = shadow.getElementById('btn-agent-stop');
+  // 版本/更新 DOM
+  C.$btnSettings = shadow.getElementById('btn-settings');
+  C.$settingsVersion = shadow.getElementById('settings-version');
+  C.$settingsProjectUrl = shadow.getElementById('settings-project-url');
+  C.$btnCheckUpdate = shadow.getElementById('btn-check-update');
+  C.$updateStatus = shadow.getElementById('update-status');
 
   // ======================== 侧边栏宽度 ========================
   chrome.storage.sync.get('sidebarWidth', ({ sidebarWidth: sw }) => {
@@ -411,7 +417,9 @@
 
   function autoResize() {
     C.$input.style.height = 'auto';
-    C.$input.style.height = Math.min(C.$input.scrollHeight, 120) + 'px';
+    if (C.$input.value.trim()) {
+      C.$input.style.height = Math.min(C.$input.scrollHeight, 120) + 'px';
+    }
     C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0) || C.isStreaming;
   }
   C.autoResize = autoResize;
@@ -929,7 +937,7 @@
 
   // -- 侧边栏按钮 --
   shadow.getElementById('btn-close').addEventListener('click', () => toggleSidebar(false));
-  shadow.getElementById('btn-settings').addEventListener('click', SP.openSettingsPanel);
+  C.$btnSettings.addEventListener('click', () => { clearUpdateBadge(); SP.openSettingsPanel(); });
 
   // -- 输入框 --
   C.$input.addEventListener('compositionstart', () => { C.isComposing = true; });
@@ -1410,10 +1418,48 @@
   C.restoreAgentMessages = restoreAgentMessagesFromHistory;
   C.restoreAgentToolCard = restoreAgentToolCard;
 
+  // ======================== 自动检查更新 ========================
+  var _hasPendingUpdate = false;
+
+  async function autoCheckUpdate() {
+    try {
+      var stored = await chrome.storage.local.get(['lastUpdateCheck', 'hasPendingUpdate']);
+      var now = Date.now();
+      // 24 小时内不重复检查
+      if (stored.lastUpdateCheck && (now - stored.lastUpdateCheck < 86400000)) {
+        _hasPendingUpdate = !!stored.hasPendingUpdate;
+        if (_hasPendingUpdate) updateSettingsBadge();
+        return;
+      }
+      var result = await chrome.runtime.sendMessage({ type: 'check-update' });
+      if (result && result.hasUpdate) {
+        _hasPendingUpdate = true;
+        updateSettingsBadge();
+      } else {
+        _hasPendingUpdate = false;
+      }
+      await chrome.storage.local.set({ lastUpdateCheck: now, hasPendingUpdate: _hasPendingUpdate });
+    } catch(e) {}
+  }
+
+  function updateSettingsBadge() {
+    if (C.$btnSettings) {
+      if (_hasPendingUpdate) C.$btnSettings.classList.add('has-update');
+      else C.$btnSettings.classList.remove('has-update');
+    }
+  }
+
+  function clearUpdateBadge() {
+    _hasPendingUpdate = false;
+    updateSettingsBadge();
+    chrome.storage.local.set({ hasPendingUpdate: false });
+  }
+
   // ======================== 挂载 ========================
   await HP.loadConversations();
   document.documentElement.appendChild(host);
   // 检查是否有正在运行的 Agent 会话（其他标签页可能正在执行）
+  autoCheckUpdate();
   checkAgentSessionOnInit();
 
 })();
