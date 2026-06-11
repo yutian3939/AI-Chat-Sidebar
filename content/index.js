@@ -275,6 +275,8 @@
   // 版本/更新 DOM
   C.$btnSettings = shadow.getElementById('btn-settings');
   C.$settingsVersion = shadow.getElementById('settings-version');
+  // 立即设置版本号，不等到打开设置面板
+  if (C.$settingsVersion) C.$settingsVersion.textContent = 'v' + chrome.runtime.getManifest().version;
   C.$settingsProjectUrl = shadow.getElementById('settings-project-url');
   C.$btnCheckUpdate = shadow.getElementById('btn-check-update');
   C.$updateStatus = shadow.getElementById('update-status');
@@ -738,13 +740,13 @@
         finishChat();
         return;
       }
-      // port 断了但回复可能还在路上（多模态），等 180 秒
+      // port 断了但回复可能还在路上（多模态），等 300 秒
       _disconnectTimer = setTimeout(function() {
         if (C.isStreaming) {
           HP.addError('请求超时：多模态模型响应时间过长，请检查网络或尝试缩小图片。');
           finishChat();
         }
-      }, 180000);
+      }, 3000000);
     });
 
     C.currentPort.postMessage({ type: 'init', history: C.chatHistory.slice(), visionMode: isOcrMode ? 'none' : C.visionMode });

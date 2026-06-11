@@ -458,11 +458,11 @@ async function chatCompletion(settings, messages, port, tabId) {
       controller.abort();
       // IIFE 确保 async send 完成写入
       (async () => {
-        await send({ type: 'error', content: '请求超时（180秒），图片可能过大或网络不稳定' });
+        await send({ type: 'error', content: '请求超时（300秒），图片可能过大或网络不稳定' });
         await send({ type: 'done' });
       })();
     }
-  }, 180000);
+  }, 3000000);
 
   try {
     const body = JSON.stringify({ model: settings.model, messages, stream: false, max_tokens: 4096 });
