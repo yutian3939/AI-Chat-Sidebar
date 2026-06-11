@@ -293,6 +293,16 @@ window.AIChatCSS = `
     }
     :host([data-theme="dark"]) .err { background: rgba(242,184,182,.12); }
 
+    /* ---- AI 回复复制按钮 ---- */
+    .copy-ai-btn {
+      display: block; margin-top: 10px; padding: 6px 12px;
+      font-size: 12px; font-family: inherit; cursor: pointer;
+      color: var(--md-outline); background: var(--md-surface-container);
+      border: 1px solid var(--md-outline-variant); border-radius: 8px;
+      transition: all .15s;
+    }
+    .copy-ai-btn:hover { color: var(--md-primary); border-color: var(--md-primary); }
+
     /* ---- 自动答题 ---- */
     .auto-row {
       display: flex; align-items: center; gap: 10px;

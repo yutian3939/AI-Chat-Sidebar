@@ -29,6 +29,13 @@ const AUTO_ANSWER_PROMPT = `你是一个严谨的作业答题助手。请仔细�
 - 如果题目涉及代码或专业知识，请认真分析`;
 
 /**
+ * 安全发送 port 消息（port 断开时不抛异常）
+ */
+function safePost(port, msg) {
+  try { port.postMessage(msg); } catch(e) {}
+}
+
+/**
  * 清理字符串首尾空白
  */
 function cleanStr(str) {
@@ -55,9 +62,9 @@ function normalizeEndpoint(url) {
 
 // ---- 处理来自 content script 的一次性消息 ----
 chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-  // 提供 KaTeX CSS（备选：XHR 被 Chrome 拦截时使用）
+  // 提供 KaTeX CSS（备选：XHR 被拦截时使用；字体已 Base64 内嵌）
   if (msg.type === 'get-katex-css') {
-    fetch(chrome.runtime.getURL('lib/katex.min.css'))
+    fetch(chrome.runtime.getURL('lib/katex-embedded.css'))
       .then(r => r.text())
       .then(css => sendResponse({ css }))
       .catch(() => sendResponse({ css: '' }));
@@ -167,194 +174,186 @@ async function captureScreenshot(rect) {
 // ---- 处理来自 content script 的长连接 (流式响应) ----
 chrome.runtime.onConnect.addListener((port) => {
   if (port.name !== 'ai-chat') return;
+  var tabId = port.sender && port.sender.tab ? port.sender.tab.id : null;
 
-  port.onMessage.addListener(async (msg) => {
+  // async 消息分发：返回 Promise 确保 MV3 在 await 期间保持 port 活跃
+  port.onMessage.addListener((msg) => {
     if (msg.type === 'init') {
-      try {
-        const settings = {
-          ...DEFAULT_SETTINGS,
-          ...(await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS)))
-        };
-
-        if (!settings.apiKey) {
-          port.postMessage({ type: 'error', content: '请先在设置中配置 API Key' });
-          port.postMessage({ type: 'done' });
-          return;
-        }
-
-        // ✅ 自动补全端点路径
-        settings.apiEndpoint = normalizeEndpoint(settings.apiEndpoint);
-
-        const visionMode = msg.visionMode || 'none';
-
-        // 视觉模型转述：先读图片数据和外挂模型配置
-        const visionSettings = visionMode === 'vision'
-          ? await loadVisionSettings() : null;
-
-        const messages = [];
-        // Agent 模式时使用更强的系统提示词注入浏览器自动化能力说明
-        if (settings.systemPrompt) {
-          messages.push({ role: 'system', content: settings.systemPrompt });
-        }
-
-        let hasMultimodal = false;
-        for (const m of msg.history) {
-          const hasImgs = !!(m._images && m._images.length > 0);
-          const storageKey = m._images?.[0]?.storageKey;
-          const stored = storageKey ? await chrome.storage.local.get(storageKey) : {};
-          const dataUrls = (stored[storageKey] || []).filter(Boolean); // 过滤空的 dataUrl
-          const hasValidImgs = hasImgs && dataUrls.length > 0;
-
-          // 构建该条消息的最终文本 (含文件内容)
-          let fullMsgText = m.content || '';
-          if (m._attachments && m._attachments.length > 0) {
-            const fileTexts = [];
-            m._attachments.forEach(a => {
-              if (!(a.type || '').startsWith('image/') && a.text) {
-                fileTexts.push('[文件内容: ' + a.name + ']\n' + a.text);
-              }
-            });
-            if (fileTexts.length > 0) {
-              fullMsgText = fileTexts.join('\n\n') + (fullMsgText ? '\n\n---\n' + fullMsgText : '');
-            }
-          }
-
-          // 只有真正有图片数据时才走多模态路径
-          if (hasValidImgs && visionMode === 'main') {
-            hasMultimodal = true;
-            const contentArr = [];
-            dataUrls.forEach(url => {
-              contentArr.push({ type: 'image_url', image_url: { url } });
-            });
-            contentArr.push({ type: 'text', text: fullMsgText || '请描述这张图片' });
-            messages.push({ role: m.role, content: contentArr });
-            if (storageKey) chrome.storage.local.remove(storageKey);
-          } else if (hasImgs && visionMode === 'vision' && visionSettings) {
-            hasMultimodal = false;
-            const desc = await describeImages(visionSettings, dataUrls, fullMsgText);
-            messages.push({ role: m.role, content: desc });
-            if (storageKey) chrome.storage.local.remove(storageKey);
-          } else {
-            messages.push({ role: m.role, content: fullMsgText });
-          }
-        }
-
-        if (hasMultimodal) {
-          await chatCompletion(settings, messages, port);
-        } else {
-          await streamChat(settings, messages, port);
-        }
-      } catch (err) {
-        port.postMessage({ type: 'error', content: err.message || '发生未知错误' });
-        port.postMessage({ type: 'done' });
-      }
-    }
-
-    // ========== Agent 模式消息处理 ==========
-    if (msg.type === 'agent-init') {
-      try {
-        const settings = {
-          ...DEFAULT_SETTINGS,
-          ...(await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS)))
-        };
-
-        if (!settings.apiKey) {
-          port.postMessage({ type: 'error', content: '请先在设置中配置 API Key' });
-          port.postMessage({ type: 'done' });
-          return;
-        }
-
-        settings.apiEndpoint = normalizeEndpoint(settings.apiEndpoint);
-
-        // 新建 convId
-        const convId = msg.convId || ('conv_' + Date.now());
-
-        // 加载 Agent 设置
-        const agentData = await chrome.storage.local.get([
-          'agentMaxSteps', 'agentSearchProvider', 'agentRequireConfirm'
-        ]);
-        const maxSteps = msg.maxSteps != null ? msg.maxSteps : (agentData.agentMaxSteps != null ? agentData.agentMaxSteps : 5);
-
-        // 构建消息（Agent 模式加浏览器能力提示）
-        const messages = [];
-        const agentSysMsg = msg.history.find(m => m.role === 'system');
-        if (agentSysMsg) {
-          messages.push({ role: 'system', content: agentSysMsg.content });
-        } else if (settings.systemPrompt) {
-          messages.push({ role: 'system', content: settings.systemPrompt });
-        }
-
-        if (messages.length > 0 && messages[0].role === 'system') {
-          messages[0].content += '\n\n你是一个浏览器自动化助手。你可以使用提供的工具来操作浏览器：打开标签页、点击元素、输入文字、获取页面结构、搜索网页、执行JavaScript等。当前你可以直接控制用户的浏览器，请在每一步操作后仔细分析工具返回的结果，再决定下一步行动。如果遇到页面加载，请使用 wait_for_element 等待关键元素出现后再继续。';
-        }
-
-        // 构建聊天历史（含 _agent_tool 用于 UI 显示）
-        const chatHistory = [];
-        const visionMode = msg.visionMode || 'none';
-        for (const m of msg.history) {
-          if (m.role === 'system') continue;
-          chatHistory.push(m);
-          if (m.role === 'user' || m.role === 'assistant') {
-            let content = m.content || '';
-            if (m._attachments && m._attachments.length > 0) {
-              const fileTexts = [];
-              m._attachments.forEach(a => {
-                if (!(a.type || '').startsWith('image/') && a.text) {
-                  fileTexts.push('[文件内容: ' + a.name + ']\n' + a.text);
-                }
-              });
-              if (fileTexts.length > 0) {
-                content = fileTexts.join('\n\n') + (content ? '\n\n---\n' + content : '');
-              }
-            }
-
-            // 处理图片：Agent 模式同样支持多模态
-            const hasImgs = !!(m._images && m._images.length > 0);
-            if (hasImgs && visionMode === 'main') {
-              const storageKey = m._images[0].storageKey;
-              const stored = storageKey ? await chrome.storage.local.get(storageKey) : {};
-              const dataUrls = stored[storageKey] || [];
-              const contentArr = [];
-              dataUrls.forEach(url => {
-                contentArr.push({ type: 'image_url', image_url: { url } });
-              });
-              contentArr.push({ type: 'text', text: content || '请描述这张图片' });
-              messages.push({ role: m.role, content: contentArr });
-              if (storageKey) chrome.storage.local.remove(storageKey);
-            } else if (m.role !== '_agent_tool') {
-              messages.push({ role: m.role, content });
-            }
-          }
-        }
-
-        // 设置全局 Agent 会话（供 storage 持久化和跨标签页交互）
-        agentSession = {
-          convId,
-          controller: null,
-          running: true,
-          chatHistory,
-          settings,
-          maxSteps
-        };
-        // 立即写 storage：新标签页通过轮询感知 Agent 正在运行
-        await chrome.storage.local.set({
-          _agentSync: { counter: Date.now(), convId, running: true, updatedAt: Date.now() },
-          currentConvId: convId
-        });
-
-        await runAgentLoop(settings, messages, maxSteps, port);
-      } catch (err) {
-        port.postMessage({ type: 'error', content: err.message || 'Agent 发生未知错误' });
-        port.postMessage({ type: 'done' });
-      }
+      return handleInit(port, msg, tabId);
+    } else if (msg.type === 'agent-init') {
+      return handleAgentInit(port, msg, tabId);
     }
   });
 });
 
+// ---- 独立的异步处理函数（通过 return Promise 保持 port 存活） ----
+
+async function handleInit(port, msg, tabId) {
+  console.log('[BG:handleInit] visionMode:', msg.visionMode, 'history:', (msg.history || []).length, '条');
+  try {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      ...(await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS)))
+    };
+    console.log('[BG:handleInit] 模型:', settings.model, '端点:', settings.apiEndpoint);
+
+    if (!settings.apiKey) {
+      safePost(port, { type: 'error', content: '请先在设置中配置 API Key' });
+      safePost(port, { type: 'done' });
+      return;
+    }
+
+    settings.apiEndpoint = normalizeEndpoint(settings.apiEndpoint);
+    const visionMode = msg.visionMode || 'none';
+    const visionSettings = visionMode === 'vision' ? await loadVisionSettings() : null;
+
+    const messages = [];
+    if (settings.systemPrompt) {
+      messages.push({ role: 'system', content: settings.systemPrompt });
+    }
+
+    let hasMultimodal = false;
+    for (const m of msg.history) {
+      const hasImgs = !!(m._images && m._images.length > 0);
+      const storageKey = m._images?.[0]?.storageKey;
+      const stored = storageKey ? await chrome.storage.local.get(storageKey) : {};
+      const dataUrls = (stored[storageKey] || []).filter(Boolean);
+      const hasValidImgs = hasImgs && dataUrls.length > 0;
+
+      let fullMsgText = m.content || '';
+      if (m._attachments && m._attachments.length > 0) {
+        const fileTexts = [];
+        m._attachments.forEach(a => {
+          if (!(a.type || '').startsWith('image/') && a.text) {
+            fileTexts.push('[文件内容: ' + a.name + ']\n' + a.text);
+          }
+        });
+        if (fileTexts.length > 0) {
+          fullMsgText = fileTexts.join('\n\n') + (fullMsgText ? '\n\n---\n' + fullMsgText : '');
+        }
+      }
+
+      if (hasValidImgs && visionMode === 'main') {
+        hasMultimodal = true;
+        const contentArr = [];
+        dataUrls.forEach(url => {
+          contentArr.push({ type: 'image_url', image_url: { url } });
+        });
+        contentArr.push({ type: 'text', text: fullMsgText || '请描述这张图片' });
+        messages.push({ role: m.role, content: contentArr });
+        if (storageKey) chrome.storage.local.remove(storageKey);
+      } else if (hasImgs && visionMode === 'vision' && visionSettings) {
+        const desc = await describeImages(visionSettings, dataUrls, fullMsgText);
+        messages.push({ role: m.role, content: desc });
+        if (storageKey) chrome.storage.local.remove(storageKey);
+      } else {
+        messages.push({ role: m.role, content: fullMsgText });
+      }
+    }
+
+    if (hasMultimodal) {
+      console.log('[BG:handleInit] → chatCompletion (非流式)');
+      await chatCompletion(settings, messages, port, tabId);
+    } else {
+      console.log('[BG:handleInit] → streamChat (流式)');
+      await streamChat(settings, messages, port, tabId);
+    }
+    console.log('[BG:handleInit] ✓ 完成');
+  } catch (err) {
+    safePost(port, { type: 'error', content: err.message || '发生未知错误' });
+    safePost(port, { type: 'done' });
+  }
+}
+
+async function handleAgentInit(port, msg) {
+  try {
+    const settings = {
+      ...DEFAULT_SETTINGS,
+      ...(await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS)))
+    };
+
+    if (!settings.apiKey) {
+      safePost(port, { type: 'error', content: '请先在设置中配置 API Key' });
+      safePost(port, { type: 'done' });
+      return;
+    }
+
+    settings.apiEndpoint = normalizeEndpoint(settings.apiEndpoint);
+    const convId = msg.convId || ('conv_' + Date.now());
+
+    const agentData = await chrome.storage.local.get([
+      'agentMaxSteps', 'agentSearchProvider', 'agentRequireConfirm'
+    ]);
+    const maxSteps = msg.maxSteps != null ? msg.maxSteps : (agentData.agentMaxSteps != null ? agentData.agentMaxSteps : 5);
+
+    const messages = [];
+    const agentSysMsg = msg.history.find(m => m.role === 'system');
+    if (agentSysMsg) {
+      messages.push({ role: 'system', content: agentSysMsg.content });
+    } else if (settings.systemPrompt) {
+      messages.push({ role: 'system', content: settings.systemPrompt });
+    }
+
+    if (messages.length > 0 && messages[0].role === 'system') {
+      messages[0].content += '\n\n你是一个浏览器自动化助手。你可以使用提供的工具来操作浏览器：打开标签页、点击元素、输入文字、获取页面结构、搜索网页、执行JavaScript等。当前你可以直接控制用户的浏览器，请在每一步操作后仔细分析工具返回的结果，再决定下一步行动。如果遇到页面加载，请使用 wait_for_element 等待关键元素出现后再继续。';
+    }
+
+    const chatHistory = [];
+    const visionMode = msg.visionMode || 'none';
+    for (const m of msg.history) {
+      if (m.role === 'system') continue;
+      chatHistory.push(m);
+      if (m.role === 'user' || m.role === 'assistant') {
+        let content = m.content || '';
+        if (m._attachments && m._attachments.length > 0) {
+          const fileTexts = [];
+          m._attachments.forEach(a => {
+            if (!(a.type || '').startsWith('image/') && a.text) {
+              fileTexts.push('[文件内容: ' + a.name + ']\n' + a.text);
+            }
+          });
+          if (fileTexts.length > 0) {
+            content = fileTexts.join('\n\n') + (content ? '\n\n---\n' + content : '');
+          }
+        }
+
+        const hasImgs = !!(m._images && m._images.length > 0);
+        if (hasImgs && visionMode === 'main') {
+          const storageKey = m._images[0].storageKey;
+          const stored = storageKey ? await chrome.storage.local.get(storageKey) : {};
+          const dataUrls = stored[storageKey] || [];
+          const contentArr = [];
+          dataUrls.forEach(url => {
+            contentArr.push({ type: 'image_url', image_url: { url } });
+          });
+          contentArr.push({ type: 'text', text: content || '请描述这张图片' });
+          messages.push({ role: m.role, content: contentArr });
+          if (storageKey) chrome.storage.local.remove(storageKey);
+        } else if (m.role !== '_agent_tool') {
+          messages.push({ role: m.role, content });
+        }
+      }
+    }
+
+    agentSession = {
+      convId, controller: null, running: true,
+      chatHistory, settings, maxSteps
+    };
+    await chrome.storage.local.set({
+      _agentSync: { counter: Date.now(), convId, running: true, updatedAt: Date.now() },
+      currentConvId: convId
+    });
+
+    await runAgentLoop(settings, messages, maxSteps, port);
+  } catch (err) {
+    safePost(port, { type: 'error', content: err.message || 'Agent 发生未知错误' });
+    safePost(port, { type: 'done' });
+  }
+}
+
 // ---- 流式调用 OpenAI 兼容 API ----
-async function streamChat(settings, messages, port) {
+async function streamChat(settings, messages, port, tabId) {
   const controller = new AbortController();
-  port.onDisconnect.addListener(() => controller.abort());
 
   const response = await fetch(settings.apiEndpoint, {
     method: 'POST',
@@ -372,8 +371,8 @@ async function streamChat(settings, messages, port) {
 
   if (!response.ok) {
     const text = await response.text().catch(() => '');
-    port.postMessage({ type: 'error', content: `API 错误 (${response.status}): ${text || response.statusText}` });
-    port.postMessage({ type: 'done' });
+    safePost(port, { type: 'error', content: `API 错误 (${response.status}): ${text || response.statusText}` });
+    safePost(port, { type: 'done' });
     return;
   }
 
@@ -398,7 +397,7 @@ async function streamChat(settings, messages, port) {
 
         const data = trimmed.slice(5).trim();
         if (data === '[DONE]') {
-          port.postMessage({ type: 'done' });
+          safePost(port, { type: 'done' });
           doneSent = true;
           return;
         }
@@ -407,15 +406,15 @@ async function streamChat(settings, messages, port) {
           const json = JSON.parse(data);
           // 检测 SSE 流内错误 (如 OpenAI 返回的 error)
           if (json.error) {
-            port.postMessage({ type: 'error', content: json.error.message || JSON.stringify(json.error) });
-            port.postMessage({ type: 'done' });
+            safePost(port, { type: 'error', content: json.error.message || JSON.stringify(json.error) });
+            safePost(port, { type: 'done' });
             doneSent = true;
             return;
           }
           const content = json.choices?.[0]?.delta?.content;
           if (content) {
             chunkSent = true;
-            port.postMessage({ type: 'chunk', content });
+            safePost(port, { type: 'chunk', content });
           }
         } catch {
           // 跳过无法解析的行
@@ -424,27 +423,50 @@ async function streamChat(settings, messages, port) {
     }
   } catch (err) {
     if (err.name !== 'AbortError') {
-      port.postMessage({ type: 'error', content: err.message });
+      safePost(port, { type: 'error', content: err.message });
     }
   } finally {
     // 流结束但未发送任何 chunk 也没有错误 → API 返回了空内容
     if (!doneSent && !chunkSent) {
-      port.postMessage({ type: 'error', content: 'API 返回了空响应，请检查模型是否支持多模态输入（如 gpt-4o）' });
+      safePost(port, { type: 'error', content: 'API 返回了空响应，请检查模型是否支持多模态输入（如 gpt-4o）' });
     }
     if (!doneSent) {
-      port.postMessage({ type: 'done' });
+      safePost(port, { type: 'done' });
     }
   }
 }
 
 // ---- 非流式调用 (用于多模态，避免 Qwen 等兼容性问题) ----
-async function chatCompletion(settings, messages, port) {
+async function chatCompletion(settings, messages, port, tabId) {
   const controller = new AbortController();
-  port.onDisconnect.addListener(() => controller.abort());
+
+  // 发送函数：三通道确保回复送达 (storage + tabs.sendMessage + port)
+  let _msgSeq = 0;
+  async function send(msg) {
+    msg._seq = ++_msgSeq;
+    let ok = 0;
+    try { await chrome.storage.local.set({ _chatResponse: msg }); ok++; } catch (e) {}
+    try { if (tabId) { await chrome.tabs.sendMessage(tabId, msg); ok++; } } catch (e) {}
+    try { port.postMessage(msg); ok++; } catch (e) {}
+    if (ok === 0) console.error('[ChatCompletion] 所有通道均失效！');
+    else console.log('[ChatCompletion] 发送', msg.type, '(' + ok + '/3 通道 OK)');
+  }
+
+  // 180 秒超时
+  const timeoutId = setTimeout(() => {
+    if (!controller.signal.aborted) {
+      controller.abort();
+      // IIFE 确保 async send 完成写入
+      (async () => {
+        await send({ type: 'error', content: '请求超时（180秒），图片可能过大或网络不稳定' });
+        await send({ type: 'done' });
+      })();
+    }
+  }, 180000);
 
   try {
-    console.log('[ChatCompletion] 使用模型:', settings.model, '端点:', settings.apiEndpoint, '消息数:', messages.length, '请求体大小:', Math.round(JSON.stringify({ model: settings.model, messages, stream: false }).length / 1024) + 'KB');
-    const body = JSON.stringify({ model: settings.model, messages, stream: false });
+    const body = JSON.stringify({ model: settings.model, messages, stream: false, max_tokens: 4096 });
+    console.log('[ChatCompletion] >>> fetch, 请求体:', Math.round(body.length / 1024), 'KB');
 
     const response = await fetch(settings.apiEndpoint, {
       method: 'POST',
@@ -456,34 +478,37 @@ async function chatCompletion(settings, messages, port) {
       signal: controller.signal
     });
 
-    console.log('[ChatCompletion] HTTP 状态:', response.status);
+    clearTimeout(timeoutId);
+
+    console.log('[ChatCompletion] HTTP', response.status);
     if (!response.ok) {
       const text = await response.text().catch(() => '');
-      console.error('[ChatCompletion] API 错误:', response.status, text.slice(0, 500));
+      console.error('[ChatCompletion] API 错误:', text.slice(0, 200));
       if (!controller.signal.aborted) {
-        port.postMessage({ type: 'error', content: `API 错误 (${response.status}): ${text || response.statusText}` });
-        port.postMessage({ type: 'done' });
+        await send({ type: 'error', content: 'API 错误 (' + response.status + '): ' + (text || response.statusText) });
+        await send({ type: 'done' });
       }
       return;
     }
 
     const data = await response.json();
     const content = data.choices?.[0]?.message?.content;
-    console.log('[ChatCompletion] 响应内容长度:', content ? content.length : 0);
+    console.log('[ChatCompletion] 响应:', content ? content.length : 0, '字符');
 
     if (controller.signal.aborted) return;
     if (content) {
-      port.postMessage({ type: 'chunk', content });
+      await send({ type: 'chunk', content });
     } else {
-      port.postMessage({ type: 'error', content: 'API 返回空内容，请检查模型是否支持视觉输入' });
+      const reason = data.choices?.[0]?.finish_reason || '未知';
+      await send({ type: 'error', content: 'API 返回空内容 (finish_reason: ' + reason + ')，请检查模型是否支持视觉输入' });
     }
-    port.postMessage({ type: 'done' });
+    await send({ type: 'done' });
   } catch (err) {
-    console.error('[ChatCompletion] 异常:', err.name, err.message);
+    clearTimeout(timeoutId);
     if (err.name === 'AbortError') return;
     if (!controller.signal.aborted) {
-      port.postMessage({ type: 'error', content: err.message });
-      port.postMessage({ type: 'done' });
+      await send({ type: 'error', content: err.message });
+      await send({ type: 'done' });
     }
   }
 }
@@ -999,8 +1024,8 @@ async function runAgentLoop(settings, messages, maxSteps, port) {
   while (stepCount < effectiveMax) {
     // 总超时检查
     if (Date.now() - startTime > TOTAL_TIMEOUT) {
-      port.postMessage({ type: 'error', content: 'Agent 执行超时(5分钟)，任务可能过于复杂。' });
-      port.postMessage({ type: 'done' });
+      safePost(port, { type: 'error', content: 'Agent 执行超时(5分钟)，任务可能过于复杂。' });
+      safePost(port, { type: 'done' });
       return;
     }
 
@@ -1038,7 +1063,7 @@ async function runAgentLoop(settings, messages, maxSteps, port) {
       if (msg.tool_calls && msg.tool_calls.length > 0) {
         // 真正执行工具 → 记录步数
         stepCount++;
-        if (port) port.postMessage({ type: 'agent-thinking', step: stepCount, maxSteps: effectiveMax });
+        if (port) safePost(port, { type: 'agent-thinking', step: stepCount, maxSteps: effectiveMax });
         if (agentSession) { agentSession.step = stepCount; agentSession.maxSteps = effectiveMax; }
         // 追加 assistant 消息(含 tool_calls)到历史
         messages.push(msg);
@@ -1060,7 +1085,7 @@ async function runAgentLoop(settings, messages, maxSteps, port) {
           checkRateLimit(toolName);
 
           // 通知 UI：开始执行工具
-          if (port) port.postMessage({
+          if (port) safePost(port, {
             type: 'agent-tool-start',
             toolCallId: tc.id,
             name: toolName,
@@ -1083,7 +1108,7 @@ async function runAgentLoop(settings, messages, maxSteps, port) {
           const resultStr = JSON.stringify(toolResult);
 
           // 通知 UI：工具结果
-          if (port) port.postMessage({
+          if (port) safePost(port, {
             type: 'agent-tool-result',
             toolCallId: tc.id,
             name: toolName,
@@ -1114,8 +1139,8 @@ async function runAgentLoop(settings, messages, maxSteps, port) {
       // 无 tool_calls → 最终答案
       if (msg.content) {
         messages.push({ role: 'assistant', content: msg.content });
-        if (port) port.postMessage({ type: 'chunk', content: msg.content });
-        if (port) port.postMessage({ type: 'done' });
+        if (port) safePost(port, { type: 'chunk', content: msg.content });
+        if (port) safePost(port, { type: 'done' });
         // 保存最终答案到 storage
         if (agentSession) {
           agentSession.chatHistory.push({ role: 'assistant', content: msg.content });
@@ -1127,31 +1152,31 @@ async function runAgentLoop(settings, messages, maxSteps, port) {
       }
 
       // 空响应
-      if (port) port.postMessage({ type: 'error', content: 'API 返回空结果，Agent 结束。' });
-      if (port) port.postMessage({ type: 'done' });
+      if (port) safePost(port, { type: 'error', content: 'API 返回空结果，Agent 结束。' });
+      if (port) safePost(port, { type: 'done' });
       if (agentSession) { agentSession.running = false; await agentPersistToStorage(); agentSession = null; }
       return;
 
     } catch (err) {
       if (err.name === 'AbortError') {
-        if (port) port.postMessage({ type: 'error', content: 'Agent 已被取消' });
+        if (port) safePost(port, { type: 'error', content: 'Agent 已被取消' });
       } else {
-        if (port) port.postMessage({ type: 'error', content: err.message || 'Agent 执行失败' });
+        if (port) safePost(port, { type: 'error', content: err.message || 'Agent 执行失败' });
       }
-      if (port) port.postMessage({ type: 'done' });
+      if (port) safePost(port, { type: 'done' });
       if (agentSession) { agentSession.running = false; await agentPersistToStorage(); agentSession = null; }
       return;
     }
   }
 
   // 超步数
-  if (port) port.postMessage({
+  if (port) safePost(port, {
     type: 'error',
     content: maxSteps > 0
       ? `Agent 达到最大步数(${maxSteps})，已执行${stepCount}步，请检查结果或增加步数限制。`
       : `Agent 已执行${stepCount}步并超时，任务可能过于复杂。`
   });
-  if (port) port.postMessage({ type: 'done' });
+  if (port) safePost(port, { type: 'done' });
   if (agentSession) { agentSession.running = false; await agentPersistToStorage(); agentSession = null; }
 }
 

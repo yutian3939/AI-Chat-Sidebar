@@ -156,9 +156,11 @@
     C.chatHistory = conv.messages.slice();
     C.autoAnswerData = conv.autoAnswerData || null;
     clearAutoResultsPanel();
+    C.$messages.style.scrollBehavior = 'auto';
     restoreMessagesFromHistory();
     if (C.autoAnswerData) window.AIChatAutoAnswer.restoreAutoResultsPanel(C.autoAnswerData);
-    scrollToBottom();
+    C.$messages.scrollTop = C.$messages.scrollHeight;
+    C.$messages.style.scrollBehavior = '';
     await chrome.storage.local.set({ currentConvId: C.currentConvId });
     closeHistoryPanel();
   }
@@ -227,6 +229,27 @@
 
   // ======================== 消息渲染辅助 (需要 context) ========================
 
+  function addCopyButton(bubble, rawText) {
+    // 移除旧按钮（防重复）
+    var old = bubble.querySelector('.copy-ai-btn');
+    if (old) old.remove();
+    var btn = document.createElement('button');
+    btn.className = 'copy-ai-btn';
+    btn.title = '复制原始文本';
+    btn.textContent = '📋 复制';
+    btn.addEventListener('click', function(e) {
+      e.stopPropagation();
+      navigator.clipboard.writeText(rawText).then(function() {
+        btn.textContent = '✓ 已复制';
+        setTimeout(function() { btn.textContent = '📋 复制'; }, 800);
+      }).catch(function() {
+        btn.textContent = '✗ 失败';
+        setTimeout(function() { btn.textContent = '📋 复制'; }, 800);
+      });
+    });
+    bubble.appendChild(btn);
+  }
+
   function addMessageBubble(role, text) {
     var C = window.__CTX__;
     var wrap = document.createElement('div');
@@ -235,6 +258,9 @@
     bubble.className = 'bubble';
     bubble.innerHTML = MD.renderMarkdown(text);
     wrap.appendChild(bubble);
+    if (role === 'ai' && text) {
+      addCopyButton(bubble, text);
+    }
     var ts = document.createElement('div');
     ts.className = 'ts';
     ts.textContent = timeStr();
@@ -325,6 +351,7 @@
     // Messages
     addMessage: addMessage,
     addMessageBubble: addMessageBubble,
+    addCopyButton: addCopyButton,
     addLoading: addLoading,
     removeLoading: removeLoading,
     addError: addError,

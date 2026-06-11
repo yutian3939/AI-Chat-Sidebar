@@ -5,19 +5,29 @@
 (async () => {
   'use strict';
 
-  // 加载 KaTeX CSS
+  // 加载 KaTeX CSS（字体已 Base64 内嵌，无外部依赖）
   let katexCss = '';
   try {
-    const xhr = new XMLHttpRequest();
-    xhr.open('GET', chrome.runtime.getURL('lib/katex.min.css'), false);
-    xhr.send();
-    if (xhr.status === 200) katexCss = xhr.responseText;
+    const res = await fetch(chrome.runtime.getURL('lib/katex-embedded.css'));
+    if (res.ok) katexCss = await res.text();
   } catch(e) {}
   if (!katexCss) {
     try {
       const res = await chrome.runtime.sendMessage({ type: 'get-katex-css' });
       if (res && res.css) katexCss = res.css;
     } catch(e) {}
+  }
+
+  // 提取 @font-face 注入 document.head（Edge Shadow DOM 中对 data: URL 字体支持有限）
+  let katexCssLayout = katexCss;
+  if (katexCss) {
+    const ff = katexCss.match(/@font-face\{[^}]+\}/g);
+    if (ff && ff.length) {
+      const fs = document.createElement('style');
+      fs.textContent = ff.join('\n');
+      document.head.appendChild(fs);
+      katexCssLayout = katexCss.replace(/@font-face\{[^}]+\}/g, '');
+    }
   }
 
   const I = window.AIChatICONS;
@@ -181,7 +191,7 @@
   C.shadow = shadow;
 
   const style = document.createElement('style');
-  style.textContent = window.AIChatCSS + (katexCss || '');
+  style.textContent = window.AIChatCSS + (katexCssLayout || '');
 
   // 悬浮球
   const fab = document.createElement('button');
@@ -601,6 +611,7 @@
           HP.removeLoading();
           if (aiBubble) {
             aiBubble.innerHTML = MD.renderMarkdown(fullText);
+            HP.addCopyButton(aiBubble, fullText);
           }
           if (fullText) {
             C.chatHistory.push({ role: 'assistant', content: fullText });
@@ -614,7 +625,10 @@
       C.currentPort.onDisconnect.addListener(() => {
         HP.removeLoading();
         if (C.agentRunning) {
-          if (aiBubble) aiBubble.innerHTML = MD.renderMarkdown(fullText);
+          if (aiBubble) {
+            aiBubble.innerHTML = MD.renderMarkdown(fullText);
+            HP.addCopyButton(aiBubble, fullText);
+          }
           if (fullText) {
             C.chatHistory.push({ role: 'assistant', content: fullText });
           }
@@ -638,7 +652,14 @@
     let aiBubble = null;
     let fullText = '';
 
-    C.currentPort.onMessage.addListener((msg) => {
+    // 统一处理消息的函数（port 和 tabs.sendMessage 共用）
+    var _lastMsgSeq = 0;
+    function handleChatMsg(msg) {
+      // 多通道去重：三通道会交付相同消息，按 _seq 跳过重复
+      if (msg._seq != null) {
+        if (msg._seq <= _lastMsgSeq) return;
+        _lastMsgSeq = msg._seq;
+      }
       if (msg.type === 'chunk') {
         if (!aiBubble) {
           HP.removeLoading();
@@ -651,38 +672,65 @@
         HP.removeLoading();
         HP.addError(msg.content);
         HP.saveConversation();
-        C.isStreaming = false;
-        C.currentPort = null;
-        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
+        finishChat();
       } else if (msg.type === 'done') {
         HP.removeLoading();
         if (aiBubble) {
           aiBubble.innerHTML = MD.renderMarkdown(fullText);
+          HP.addCopyButton(aiBubble, fullText);
         }
         if (fullText) {
           C.chatHistory.push({ role: 'assistant', content: fullText });
           HP.saveConversation();
         }
-        C.isStreaming = false;
-        C.currentPort = null;
-        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
+        finishChat();
       }
-    });
+    }
+
+    var _disconnectTimer = null;
+
+    // storage 监听：background 把回复写入 _chatResponse，无视 port/tabs.sendMessage 是否失效
+    function _onStorageChanged(changes, area) {
+      if (area !== 'local' || !changes._chatResponse) return;
+      var msg = changes._chatResponse.newValue;
+      if (!msg || !C.isStreaming) return;
+      handleChatMsg(msg);
+    }
+    chrome.storage.onChanged.addListener(_onStorageChanged);
+
+    function finishChat() {
+      C.isStreaming = false;
+      C.currentPort = null;
+      clearTimeout(_disconnectTimer);
+      C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
+      chrome.storage.onChanged.removeListener(_onStorageChanged);
+    }
+
+    // 双通道接收消息：port（流式） + tabs.sendMessage（非流式多模态）+ storage（兜底）
+    C.currentPort.onMessage.addListener(handleChatMsg);
+    chrome.runtime.onMessage.addListener(handleChatMsg);
 
     C.currentPort.onDisconnect.addListener(() => {
       HP.removeLoading();
-      if (C.isStreaming) {
-        if (aiBubble) {
-          aiBubble.innerHTML = MD.renderMarkdown(fullText);
-        }
-        if (fullText) {
-          C.chatHistory.push({ role: 'assistant', content: fullText });
-          HP.saveConversation();
-        }
-        C.isStreaming = false;
-        C.currentPort = null;
-        C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
+      if (!C.isStreaming) return;
+      if (aiBubble) {
+        aiBubble.innerHTML = MD.renderMarkdown(fullText);
+        HP.addCopyButton(aiBubble, fullText);
       }
+      if (fullText) {
+        // 流式已经拿到了部分内容，port 正常关闭
+        C.chatHistory.push({ role: 'assistant', content: fullText });
+        HP.saveConversation();
+        finishChat();
+        return;
+      }
+      // port 断了但回复可能还在路上（多模态），等 180 秒
+      _disconnectTimer = setTimeout(function() {
+        if (C.isStreaming) {
+          HP.addError('请求超时：多模态模型响应时间过长，请检查网络或尝试缩小图片。');
+          finishChat();
+        }
+      }, 180000);
     });
 
     C.currentPort.postMessage({ type: 'init', history: C.chatHistory.slice(), visionMode: C.visionMode });
@@ -1282,8 +1330,8 @@
 
   function syncFromStorage() {
     chrome.storage.local.get(['currentConvId', 'conversations', '_agentSync'], function(data) {
-      // 不覆盖正在运行 Agent 的当前标签页
-      if (C.agentRunning) return;
+      // 正在流式回复或 Agent 运行中时，不覆盖当前标签页
+      if (C.agentRunning || C.isStreaming) return;
 
       var sync = data._agentSync;
       // 如果有活跃 Agent 会话，自动切到它
@@ -1301,8 +1349,10 @@
           C.chatHistory = conv.messages.slice();
           C.autoAnswerData = conv.autoAnswerData || null;
           C.$messages.innerHTML = '';
+          C.$messages.style.scrollBehavior = 'auto';
           restoreAgentMessagesFromHistory();
-          HP.scrollToBottom();
+          C.$messages.scrollTop = C.$messages.scrollHeight;
+          C.$messages.style.scrollBehavior = '';
         }
         // 如果没有找到 conv（边缘情况），至少清空以免显示旧数据
         else if (C.chatHistory.length > 0) {
