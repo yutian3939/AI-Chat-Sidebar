@@ -36,6 +36,7 @@
   const SS = window.AIChatScreenshot;
   const SP = window.AIChatSettings;
   const HP = window.AIChatHistory;
+  const V = window.AIChatVision;
 
   // ======================== 共享上下文 ========================
   window.__CTX__ = {
@@ -73,11 +74,13 @@
     agentMaxSteps: 5,
     agentToolCards: {},
 
-    // 视觉模型 + 附件
+    // 视觉模型 + 附件 + OCR
     visionMode: 'none',
     visionModelProvider: 'openai',
     visionModel: '',
     attachedFiles: [],
+    ocrLanguages: 'chi_sim+eng',
+    ocrEnhance: true,
     skipAnswered: true,
     autoContext: false,
 
@@ -98,6 +101,7 @@
     $settingsVisionMode: null, $visionModelFields: null,
     $settingsVisionModel: null, $settingsVisionPrompt: null,
     $btnVisionTest: null,
+    $ocrModelFields: null, $settingsOcrLangs: null, $settingsOcrEnhance: null,
     $settingsSkipAnswered: null,
     $attachmentsList: null,
     $btnAttach: null, $btnScreenshot: null,
@@ -166,7 +170,7 @@
     C.themePref = theme || 'system';
     applyTheme(C.themePref);
   });
-  chrome.storage.local.get(['colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'skipAnswered', 'autoContext', 'agentMode', 'agentMaxSteps'], (data) => {
+  chrome.storage.local.get(['colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'skipAnswered', 'autoContext', 'agentMode', 'agentMaxSteps', 'ocrLanguages', 'ocrEnhance'], (data) => {
     C.colorScheme = data.colorScheme || 'purple';
     C.visionMode = data.visionMode || 'none';
     C.visionModelProvider = data.visionModelProvider || 'openai';
@@ -175,6 +179,8 @@
     C.autoContext = !!data.autoContext;
     C.agentMode = !!data.agentMode;
     C.agentMaxSteps = data.agentMaxSteps != null ? data.agentMaxSteps : 5;
+    C.ocrLanguages = data.ocrLanguages || 'chi_sim+eng';
+    C.ocrEnhance = data.ocrEnhance !== false;
     C.host.setAttribute('data-theme', getCurrentMode());
     applyColorScheme(C.colorScheme);
     if (C.$settingsAutoContext) C.$settingsAutoContext.checked = C.autoContext;
@@ -249,6 +255,9 @@
   C.$settingsVisionModel = shadow.getElementById('settings-vision-model');
   C.$settingsVisionPrompt = shadow.getElementById('settings-vision-prompt');
   C.$btnVisionTest = shadow.getElementById('btn-vision-test');
+  C.$ocrModelFields = shadow.getElementById('ocr-model-fields');
+  C.$settingsOcrLangs = shadow.getElementById('settings-ocr-langs');
+  C.$settingsOcrEnhance = shadow.getElementById('settings-ocr-enhance');
   C.$settingsSkipAnswered = shadow.getElementById('settings-skip-answered');
   C.$attachmentsList = shadow.getElementById('attachments-list');
   C.$btnAttach = shadow.getElementById('btn-attach');
@@ -384,7 +393,7 @@
       if (C.isHomework) C.$autoStatus.textContent = '';
       // 页面感知：自动提取当前页面内容
       if (C.autoContext && !C._autoContextAdded && C.attachedFiles.length === 0) {
-        addCurrentPageContext();
+        V.addCurrentPageContext();
       }
       setTimeout(() => C.$input.focus(), 320);
     } else {
@@ -394,36 +403,7 @@
   }
   C.toggleSidebar = toggleSidebar;
 
-  // 提取当前页面文本
-  function extractPageText() {
-    try {
-      var article = document.querySelector('article') || document.querySelector('main') || document.querySelector('[role="main"]') || document.body;
-      var clone = article.cloneNode(true);
-      clone.querySelectorAll('script, style, noscript, iframe, nav, footer, header, .sidebar, .nav, .menu, .advertisement, [role="navigation"]').forEach(function(el) { el.remove(); });
-      var text = (clone.innerText || clone.textContent || '');
-      return text.replace(/\n{3,}/g, '\n\n').trim().slice(0, 30000);
-    } catch(e) { return ''; }
-  }
 
-  function addCurrentPageContext() {
-    var text = extractPageText();
-    if (!text) return;
-    var title = document.title || '当前页面';
-    var name = title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 40) + '.txt';
-    C.attachedFiles.push({
-      name: name,
-      type: 'text/plain',
-      dataUrl: '',
-      text: '【网页标题】' + title + '\n【网页地址】' + location.href + '\n\n' + text
-    });
-    C._autoContextAdded = true;
-    renderAttachments();
-    autoResize();
-    if (C.$autoStatus && !C.isHomework) {
-      C.$autoStatus.textContent = '已感知当前页面';
-      setTimeout(function() { if (C.$autoStatus) C.$autoStatus.textContent = ''; }, 3000);
-    }
-  }
 
   function autoResize() {
     C.$input.style.height = 'auto';
@@ -433,7 +413,7 @@
     C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0) || C.isStreaming;
   }
   C.autoResize = autoResize;
-  C.renderAttachments = renderAttachments;
+  C.renderAttachments = V.renderAttachments;
 
   // ======================== 发送消息 ========================
   async function doSend(text) {
@@ -444,16 +424,44 @@
     const files = C.attachedFiles.slice();
     const images = [];
     let _imgCheckFailed = false;
-    if (files.length > 0) {
+
+    // === OCR 模式：先本地识别图片文字 ===
+    const isOcrMode = C.visionMode === 'ocr';
+    if (isOcrMode && files.some(function(f) { return (f.type || '').startsWith('image/'); })) {
+      var ocrResults = [];
+      for (var fi = 0; fi < files.length; fi++) {
+        var f = files[fi];
+        if (!f.type || !f.type.startsWith('image/') || !f.dataUrl) continue;
+        try {
+          HP.removeLoading(); // 清除旧的 loading
+          HP.addLoading();
+          var ocrText = await V.runOCR(f.dataUrl);
+          if (ocrText) {
+            ocrResults.push('【' + f.name + ' 的 OCR 识别结果】\n' + ocrText);
+          }
+        } catch (ocrErr) {
+          ocrResults.push('【' + f.name + ' OCR 失败: ' + ocrErr.message + '】');
+        } finally {
+          HP.removeLoading();
+        }
+      }
+      if (ocrResults.length > 0) {
+        var ocrPrefix = ocrResults.join('\n\n---\n\n');
+        fullUserText = ocrPrefix + (text ? '\n\n---\n用户问题：' + text : '\n\n请基于以上识别结果回答问题。');
+      }
+      // OCR 模式下图片已转为文字，传给 background 的 visionMode 改为 none
+    }
+
+    if (files.length > 0 && !_imgCheckFailed) {
       const parts = [];
       files.forEach(f => {
         if (_imgCheckFailed) return;
-        if (f.type.startsWith('image/')) {
+        if ((f.type || '').startsWith('image/')) {
           if (!f.dataUrl) {
             _imgCheckFailed = true;
             HP.addError('图片数据无效，请重新添加。');
             C.attachedFiles = [];
-            renderAttachments();
+            V.renderAttachments();
             C.$sendBtn.disabled = true;
             return;
           }
@@ -462,27 +470,33 @@
             _imgCheckFailed = true;
             HP.addError('图片过大（超过约 5MB），请缩小尺寸后重试。');
             C.attachedFiles = [];
-            renderAttachments();
+            V.renderAttachments();
             C.$sendBtn.disabled = true;
             return;
           }
-          images.push({ dataUrl: f.dataUrl });
+          // OCR 模式下图片已在上面处理，这里不加入 images 数组
+          if (!isOcrMode) {
+            images.push({ dataUrl: f.dataUrl });
+          }
           // 多模态时图片以 vision_url 发送，文字标注可选
-          if (C.visionMode !== 'main') {
+          if (C.visionMode !== 'main' && !isOcrMode) {
             parts.push('[图片: ' + f.name + ']');
           }
         } else {
           // 文件内容通过 _attachments[].text 传给 AI，气泡只显示附件标签
+          if (!fullUserText.includes(f.name) && f.text) {
+            parts.push('[文件内容: ' + f.name + ']\n' + f.text);
+          }
         }
       });
       if (_imgCheckFailed) return;
-      if (parts.length > 0) {
+      if (parts.length > 0 && !fullUserText.includes('OCR')) {
         fullUserText = parts.join('\n\n') + (text ? '\n\n---\n' + text : '');
       }
-      if (images.length > 0 && !text) {
-        fullUserText = '📷 ' + files.filter(f => f.type.startsWith('image/')).map(f => f.name).join(', ');
-      } else if (files.length > 0 && !text && images.length === 0) {
-        fullUserText = '📄 ' + files.map(f => f.name).join(', ');
+      if (images.length > 0 && !text && !isOcrMode) {
+        fullUserText = '📷 ' + files.filter(function(f) { return (f.type || '').startsWith('image/'); }).map(function(f) { return f.name; }).join(', ');
+      } else if (files.length > 0 && !text && images.length === 0 && !isOcrMode) {
+        fullUserText = '📄 ' + files.map(function(f) { return f.name; }).join(', ');
       }
     }
 
@@ -524,7 +538,7 @@
         HP.addError('图片存储失败（可能过大）。请尝试缩小图片后重试。');
         C.isStreaming = false;
         C.attachedFiles = [];
-        renderAttachments();
+        V.renderAttachments();
         C.$sendBtn.disabled = (!C.$input.value.trim() && C.attachedFiles.length === 0);
         return;
       }
@@ -532,7 +546,7 @@
     C.chatHistory.push({ role: 'user', content: fullUserText, _attachments: files.map(f => ({ name: f.name, type: f.type, text: f.text || '' })), _images: images.map((_, i) => ({ storageKey: imageStorageKey, index: i })) });
     // 清除附件
     C.attachedFiles = [];
-    renderAttachments();
+    V.renderAttachments();
 
     C.isStreaming = true;
     C.$sendBtn.disabled = true;
@@ -642,7 +656,7 @@
         convId: C.currentConvId,
         history: C.chatHistory.slice(),
         maxSteps: C.agentMaxSteps,
-        visionMode: C.visionMode
+        visionMode: isOcrMode ? 'none' : C.visionMode
       });
       return;
     }
@@ -733,7 +747,7 @@
       }, 180000);
     });
 
-    C.currentPort.postMessage({ type: 'init', history: C.chatHistory.slice(), visionMode: C.visionMode });
+    C.currentPort.postMessage({ type: 'init', history: C.chatHistory.slice(), visionMode: isOcrMode ? 'none' : C.visionMode });
   }
   C.doSend = doSend;
 
@@ -1162,7 +1176,7 @@
           dataUrl: '',
           text: '【网页标题】' + title + '\n【网页地址】' + (result.url || '') + '\n\n' + result.text
         });
-        renderAttachments();
+        V.renderAttachments();
         autoResize();
         if (C.$autoStatus) C.$autoStatus.textContent = '已添加网页: ' + title.slice(0, 18) + '…';
         setTimeout(function() { if (C.$autoStatus) C.$autoStatus.textContent = ''; }, 3000);
@@ -1187,121 +1201,6 @@
     else { showAttachMenu(); }
   });
 
-  C.$fileInput.addEventListener('change', async () => {
-    if (C.$fileInput.files && C.$fileInput.files.length > 0) {
-      await addFiles(C.$fileInput.files);
-    }
-    C.$fileInput.value = '';
-  });
-
-  function readFileAsDataURL(file) {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.readAsDataURL(file);
-    });
-  }
-  function readFileAsText(file) {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.readAsText(file);
-    });
-  }
-
-  function renderAttachments() {
-    if (!C.$attachmentsList) return;
-    if (!C.attachedFiles || C.attachedFiles.length === 0) {
-      C.$attachmentsList.innerHTML = '';
-      return;
-    }
-    let html = '';
-    C.attachedFiles.forEach((f, i) => {
-      var isImg = f.type.startsWith('image/');
-      html += '<div class="attach-chip">' +
-        (isImg ? '<img src="' + f.dataUrl.replace(/"/g, '&quot;') + '" class="attach-thumb">' : '<span class="attach-icon">📄</span>') +
-        '<span class="attach-name" title="' + MD.escapeHtml(f.name) + '">' + MD.escapeHtml(f.name.slice(0, 16) + (f.name.length > 16 ? '\u2026' : '')) + '</span>' +
-        '<button class="attach-remove" data-idx="' + i + '" title="移除">✕</button>' +
-      '</div>';
-    });
-    C.$attachmentsList.innerHTML = html;
-    C.$attachmentsList.querySelectorAll('.attach-remove').forEach(function(btn) {
-      btn.addEventListener('click', function(e) {
-        e.stopPropagation();
-        var idx = parseInt(btn.dataset.idx);
-        C.attachedFiles.splice(idx, 1);
-        renderAttachments();
-        autoResize();
-      });
-    });
-  }
-
-  // -- 拖拽文件到侧边栏 --
-  sidebar.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    sidebar.classList.add('drag-over');
-  });
-  sidebar.addEventListener('dragleave', (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    if (!sidebar.contains(e.relatedTarget)) {
-      sidebar.classList.remove('drag-over');
-    }
-  });
-  sidebar.addEventListener('drop', async (e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    sidebar.classList.remove('drag-over');
-    const dt = e.dataTransfer;
-    if (dt && dt.files && dt.files.length > 0) {
-      await addFiles(dt.files);
-    }
-  });
-
-  // -- Ctrl+V 粘贴图片 --
-  C.$input.addEventListener('paste', async (e) => {
-    const items = e.clipboardData?.items;
-    if (!items) return;
-    for (const item of items) {
-      if (item.type.startsWith('image/')) {
-        e.preventDefault();
-        const blob = item.getAsFile();
-        if (blob) {
-          const dataUrl = await readBlobAsDataURL(blob);
-          C.attachedFiles.push({ name: '粘贴图片_' + Date.now() + '.png', type: blob.type, dataUrl, text: '' });
-          renderAttachments();
-          autoResize();
-        }
-      }
-    }
-  });
-
-  // 处理文件列表（拖拽或选择共用）
-  async function addFiles(fileList) {
-    for (const file of fileList) {
-      if (file.size > 20 * 1024 * 1024) continue;
-      const isImage = file.type.startsWith('image/');
-      const entry = { name: file.name, type: file.type, dataUrl: '', text: '' };
-      if (isImage) {
-        entry.dataUrl = await readFileAsDataURL(file);
-      } else {
-        entry.text = await readFileAsText(file);
-      }
-      C.attachedFiles.push(entry);
-    }
-    renderAttachments();
-    autoResize();
-  }
-
-  function readBlobAsDataURL(blob) {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.readAsDataURL(blob);
-    });
-  }
-
   // -- 代码复制 + 关闭附件菜单 (事件委托) --
   shadow.addEventListener('click', (e) => {
     if (e.target.classList.contains('copy-btn')) {
@@ -1324,6 +1223,7 @@
   SP.bindEvents();
   AA.bindEvents();
   if (SS) { SS.bindEvents(); SS.loadPrefs(); }
+  if (V) { V.bindEvents(); V.loadPrefs(); }
 
   // ======================== 跨标签页会话同步 ========================
   // 打开侧边栏 / 新标签页加载时，从 storage 拉取最新会话数据

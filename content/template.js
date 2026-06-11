@@ -87,6 +87,7 @@ window.AIChatTemplate = function(I) {
               '<option value="none">无 (忽略图片)</option>' +
               '<option value="main">使用主模型 (需支持多模态)</option>' +
               '<option value="vision">使用视觉模型转述</option>' +
+              '<option value="ocr">本地OCR识别 (几乎不支持数学公式)</option>' +
             '</select>' +
           '</div>' +
           '<div id="vision-model-fields" style="display:none">' +
@@ -98,6 +99,29 @@ window.AIChatTemplate = function(I) {
               '<label for="settings-vision-prompt">视觉系统提示词</label>' +
               '<textarea id="settings-vision-prompt" rows="2" placeholder="请简洁描述图片内容。"></textarea>' +
             '</div>' +
+          '</div>' +
+          '<div id="ocr-model-fields" style="display:none">' +
+            '<p class="settings-hint-sm">图片文字在本地识别，不消耗大模型 token</p>' +
+            '<div class="field">' +
+              '<label for="settings-ocr-langs">OCR 识别语言</label>' +
+              '<select id="settings-ocr-langs">' +
+                '<option value="chi_sim+eng">中文 + 英文</option>' +
+                '<option value="chi_sim">仅中文</option>' +
+                '<option value="eng">仅英文</option>' +
+                '<option value="chi_sim+eng+equ">中文 + 英文 + 数学符号</option>' +
+                '<option value="chi_sim+eng+jpn">中文 + 英文 + 日文</option>' +
+                '<option value="chi_sim+eng+kor">中文 + 英文 + 韩文</option>' +
+              '</select>' +
+            '</div>' +
+            '<label class="switch-row">' +
+              '<span class="switch-label">自动增强对比度（推荐）</span>' +
+              '<span class="switch-track">' +
+                '<input type="checkbox" id="settings-ocr-enhance" checked>' +
+                '<span class="switch-track-bg"></span>' +
+                '<span class="switch-thumb"></span>' +
+              '</span>' +
+            '</label>' +
+            '<p class="settings-hint-sm" style="margin-top:8px">首次使用需下载语言包（~15MB），之后缓存本地即时响应。</p>' +
           '</div>' +
         '</div>' +
         '<div class="settings-section">' +

@@ -282,7 +282,7 @@ var PROJECT_URL = 'https://github.com/yutian3939/AI-Chat-Sidebar';
     renderProviderSelect();
     fillProviderFields();
     renderCurrentModelSelect();
-    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt', 'skipAnswered', 'autoContext', 'agentMode', 'agentMaxSteps']);
+    var data = await chrome.storage.local.get(['systemPrompt', 'theme', 'colorScheme', 'visionMode', 'visionModelProvider', 'visionModel', 'visionPrompt', 'skipAnswered', 'autoContext', 'agentMode', 'agentMaxSteps', 'ocrLanguages', 'ocrEnhance']);
     var C = window.__CTX__;
     C.$settingsSystemPrompt.value = data.systemPrompt || '你是一个有帮助的AI助手。';
     C.$settingsTheme.value = data.theme || 'system';
@@ -296,6 +296,9 @@ var PROJECT_URL = 'https://github.com/yutian3939/AI-Chat-Sidebar';
     C.visionModel = data.visionModel || '';
     C.$settingsVisionMode.value = C.visionMode;
     C.$settingsVisionPrompt.value = data.visionPrompt || '请简洁描述图片内容。';
+    // OCR 设置
+    C.ocrLanguages = data.ocrLanguages || 'chi_sim+eng';
+    C.ocrEnhance = data.ocrEnhance !== false;
     // Agent 设置
     C.agentMode = !!data.agentMode;
     C.agentMaxSteps = data.agentMaxSteps != null ? data.agentMaxSteps : 5;
@@ -313,9 +316,29 @@ var PROJECT_URL = 'https://github.com/yutian3939/AI-Chat-Sidebar';
 
   function renderVisionFields() {
     var C = window.__CTX__;
-    var show = C.visionMode === 'vision';
-    C.$visionModelFields.style.display = show ? 'block' : 'none';
-    if (show) renderVisionModelSelect();
+    // 视觉模型转述
+    C.$visionModelFields.style.display = C.visionMode === 'vision' ? 'block' : 'none';
+    if (C.visionMode === 'vision') renderVisionModelSelect();
+    // OCR 模式
+    if (C.$ocrModelFields) C.$ocrModelFields.style.display = C.visionMode === 'ocr' ? 'block' : 'none';
+    if (C.visionMode === 'ocr') renderOcrFields();
+  }
+
+  function renderOcrFields() {
+    var C = window.__CTX__;
+    if (!C.$settingsOcrLangs) return;
+    C.$settingsOcrLangs.value = C.ocrLanguages || 'chi_sim+eng';
+    if (C.$settingsOcrEnhance) C.$settingsOcrEnhance.checked = C.ocrEnhance !== false;
+  }
+
+  async function saveOcrSettings() {
+    var C = window.__CTX__;
+    C.ocrLanguages = (C.$settingsOcrLangs && C.$settingsOcrLangs.value) || 'chi_sim+eng';
+    C.ocrEnhance = C.$settingsOcrEnhance ? C.$settingsOcrEnhance.checked : true;
+    await chrome.storage.local.set({
+      ocrLanguages: C.ocrLanguages,
+      ocrEnhance: C.ocrEnhance
+    });
   }
 
   function renderVisionModelSelect() {
@@ -482,6 +505,14 @@ var PROJECT_URL = 'https://github.com/yutian3939/AI-Chat-Sidebar';
     });
     if (C.$btnVisionTest) {
       C.$btnVisionTest.addEventListener('click', testVisionConnection);
+    }
+
+    // OCR 设置事件
+    if (C.$settingsOcrLangs) {
+      C.$settingsOcrLangs.addEventListener('change', saveOcrSettings);
+    }
+    if (C.$settingsOcrEnhance) {
+      C.$settingsOcrEnhance.addEventListener('change', saveOcrSettings);
     }
 
     // 答题设置

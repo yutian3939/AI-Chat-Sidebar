@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "AI Chat Sidebar",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "description": "MD3 风格的 AI 对话侧边栏，支持 OpenAI 兼容格式",
   "permissions": ["storage", "activeTab", "tabs", "scripting", "clipboardRead", "clipboardWrite"],
   "host_permissions": ["<all_urls>", "https://lite.duckduckgo.com/*"],
@@ -16,6 +16,7 @@
         "content/styles.js",
         "content/icons.js",
         "content/markdown.js",
+        "content/vision.js",
         "content/auto-answer.js",
         "content/settings-panel.js",
         "content/screenshot.js",
@@ -24,6 +25,12 @@
         "content/index.js"
       ],
       "run_at": "document_start"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["lib/ocr-bridge.js", "lib/tesseract.min.js", "lib/tesseract-worker.min.js", "lib/tesseract-core/tesseract-core.wasm", "lib/tesseract-core/tesseract-core.wasm.js", "lib/tesseract-core/tesseract-core-simd.wasm", "lib/tesseract-core/tesseract-core-simd.wasm.js"],
+      "matches": ["<all_urls>"]
     }
   ],
   "icons": {
