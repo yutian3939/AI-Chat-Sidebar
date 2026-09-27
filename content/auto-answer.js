@@ -27,40 +27,72 @@
     } catch(e) { return false; }
   }
 
+  // 判断题型：single / multi / judge（不支持的类型返回 null）
+  function getQType(qDiv) {
+    var tn = qDiv.getAttribute('typename') || '';
+    if (tn.indexOf('多选') >= 0) return 'multi';
+    if (tn.indexOf('判断') >= 0) return 'judge';
+    if (tn.indexOf('单选') >= 0) return 'single';
+    return null; // 填空 / 简答 等暂不支持
+  }
+
   function extractQuestions() {
     var questions = [];
-    var qDivs = document.querySelectorAll('.questionLi[typename="单选题"]');
+    var qDivs = document.querySelectorAll('.questionLi');
     qDivs.forEach(function(qDiv, idx) {
+      var type = getQType(qDiv);
+      if (!type) return; // 跳过不支持的题型
+
       var qid = qDiv.getAttribute('data');
+      if (!qid) return;
       var answerInput = document.getElementById('answer' + qid);
       var answered = answerInput ? !!answerInput.value.trim() : false;
 
       var h3 = qDiv.querySelector('.mark_name');
       var questionText = '';
+      var qnum = idx + 1;
       if (h3) {
-        questionText = h3.textContent
-          .replace(/^\d+\.\s*/, '')
-          .replace(/\(单选题\)/g, '')
+        var raw = h3.textContent;
+        var numMatch = raw.match(/^\s*(\d+)/);
+        if (numMatch) qnum = parseInt(numMatch[1], 10);
+        questionText = raw
+          .replace(/^\s*\d+\.\s*/, '')
+          .replace(/[（(](单选题|多选题|判断题|填空题)[^）)]*[）)]/g, '')
           .trim();
       }
 
       var options = [];
-      qDiv.querySelectorAll('.answerBg[role="radio"]').forEach(function(opt) {
-        var letterEl = opt.querySelector('.num_option');
+      qDiv.querySelectorAll('.answerBg').forEach(function(opt) {
+        // 单选/判断用 .num_option，多选用 .num_option_dx
+        var letterEl = opt.querySelector('.num_option_dx, .num_option');
         var textEl = opt.querySelector('.answer_p');
-        if (letterEl && textEl) {
-          var letter = letterEl.getAttribute('data');
-          var text = textEl.textContent.trim();
-          if (letter && text) {
-            options.push({ letter: letter, text: text });
-          }
+        if (!letterEl || !textEl) return;
+
+        var dataVal = letterEl.getAttribute('data') || '';
+        var text = (textEl.textContent || '').replace(/\s+/g, ' ').trim();
+        if (!dataVal || !text) return;
+
+        var letter;
+        if (type === 'judge') {
+          // 判断题：data 为 true/false，映射为 A(对) / B(错)
+          if (dataVal === 'true' || dataVal === '1' || dataVal === '对') letter = 'A';
+          else if (dataVal === 'false' || dataVal === '0' || dataVal === '错') letter = 'B';
+          else letter = (letterEl.textContent || '').trim().toUpperCase();
+        } else {
+          letter = dataVal.toUpperCase();
         }
+        if (!letter) return;
+
+        options.push({ letter: letter, text: text, data: dataVal });
       });
 
       if (questionText && options.length > 0) {
+        // 按字母排序，便于 AI 阅读与作答
+        options.sort(function(a, b) { return a.letter < b.letter ? -1 : (a.letter > b.letter ? 1 : 0); });
         questions.push({
-          qnum: idx + 1,
+          qnum: qnum,
           qid: qid,
+          type: type,
           question: questionText,
           options: options,
           answered: answered
@@ -70,18 +102,23 @@
     return questions;
   }
 
-  function fillAnswer(qid, letter) {
-    var choiceSpan = document.querySelector('.choice' + qid + '[data="' + letter + '"]');
-    if (choiceSpan) {
-      var answerBg = choiceSpan.closest('.answerBg');
-      if (answerBg) { answerBg.click(); answerBg.focus(); return true; }
-    }
-    var answerBg2 = document.querySelector('.answerBg[qid="' + qid + '"] .num_option[data="' + letter + '"]');
-    if (answerBg2) {
-      var parent = answerBg2.closest('.answerBg');
-      if (parent) { parent.click(); parent.focus(); return true; }
-    }
-    return false;
+  // 按 data 值填写（单选/多选可传数组，判断题 data 为 true/false）
+  function fillAnswer(qid, values) {
+    var arr = Array.isArray(values) ? values : [values];
+    var any = false;
+    arr.forEach(function(v) {
+      if (v === null || v === undefined || v === '') return;
+      var span = document.querySelector('.choice' + qid + '[data="' + v + '"]');
+      if (!span) {
+        span = document.querySelector('.answerBg[qid="' + qid + '"] .num_option[data="' + v + '"]')
+            || document.querySelector('.answerBg[qid="' + qid + '"] .num_option_dx[data="' + v + '"]');
+      }
+      if (span) {
+        var bg = span.closest('.answerBg');
+        if (bg) { bg.click(); bg.focus(); any = true; }
+      }
+    });
+    return any;
   }
 
   function scrollToQuestion(qid) {
@@ -365,7 +402,8 @@
         var result = await chrome.runtime.sendMessage({
           type: 'answer-question',
           question: q.question,
-          options: q.options
+          options: q.options.map(function(o) { return { letter: o.letter, text: o.text }; }),
+          qtype: q.type
         });
 
         if (C.autoAnswerAbort) {
@@ -383,14 +421,27 @@
           return;
         }
 
-        if (result.letter) {
-          var filled = fillAnswer(q.qid, result.letter);
+        // 归一化：letters 数组
+        var letters = (result && result.letters && result.letters.length)
+          ? result.letters
+          : (result && result.letter ? String(result.letter).split('') : []);
+
+        if (letters.length > 0) {
+          // 字母 → data 值映射（判断题 A→true / B→false）
+          var dataValues = letters.map(function(L) {
+            for (var oi = 0; oi < q.options.length; oi++) {
+              if (q.options[oi].letter === L) return q.options[oi].data;
+            }
+            return L;
+          });
+          var filled = fillAnswer(q.qid, dataValues);
+          var letterStr = letters.join('');
           var reason = (filled ? '' : '⚠ 未找到选项 ') + (result.reason || '');
-          updateAutoItem(q.qnum, 'done', { letter: result.letter, reason: reason });
-          var answerMsg = '答案: ' + result.letter + (result.reason ? '\n\n' + result.reason : '');
+          updateAutoItem(q.qnum, 'done', { letter: letterStr, reason: reason });
+          var answerMsg = '答案: ' + letterStr + (result.reason ? '\n\n' + result.reason : '');
           C.chatHistory.push({ role: 'assistant', content: answerMsg, _auto: true });
-          C.autoAnswerData.results.push({ qnum: q.qnum, letter: result.letter, reason: reason, status: 'done' });
-        } else if (result.error) {
+          C.autoAnswerData.results.push({ qnum: q.qnum, letter: letterStr, reason: reason, status: 'done' });
+        } else if (result && result.error) {
           updateAutoItem(q.qnum, 'error', { error: result.error });
           C.chatHistory.push({ role: 'assistant', content: '❌ [第' + q.qnum + '题] 答题失败: ' + result.error, _auto: true });
           C.autoAnswerData.results.push({ qnum: q.qnum, letter: '', reason: '', status: 'error' });

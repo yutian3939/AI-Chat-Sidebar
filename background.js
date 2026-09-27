@@ -15,18 +15,24 @@ const DEFAULT_SETTINGS = {
   theme: 'system'
 };
 
-// 自动答题独立提示词（与聊天提示词分离）
-const AUTO_ANSWER_PROMPT = `你是一个严谨的作业答题助手。请仔细分析题目和所有选项后，选出唯一正确答案。
+// 自动答题独立提示词（与聊天提示词分离，支持单选/多选/判断）
+const AUTO_ANSWER_PROMPT = `你是一个严谨的作业答题助手。请仔细分析题目和所有选项后作答。
+
+【题型说明】
+- 单选题：只有 1 个正确选项
+- 多选题：有 2 个或以上正确选项
+- 判断题：A 表示“对”，B 表示“错”
 
 【输出格式——严格遵循，不要输出任何其他内容】
-第一行：正确选项的字母（如：A）
+第一行：正确答案的字母。
+  · 单选题 / 判断题：只写一个字母（如：A）
+  · 多选题：把所有正确字母按顺序连写（如：ABD），不要加逗号、空格或顿号
 第二行：一句话简要解析
 
 【注意】
-- 只输出一个选项字母
-- 必须从给定的选项中选择
-- 选项字母必须在 A、B、C、D 中
-- 如果题目涉及代码或专业知识，请认真分析`;
+- 第一行只能出现字母，不要写题号、标点或汉字
+- 字母必须来自给定选项
+- 多选题务必选出全部正确项，不要遗漏`;
 
 /**
  * 安全发送 port 消息（port 断开时不抛异常）
@@ -79,7 +85,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 
   // 自动答题：逐题请求 AI 解答
   if (msg.type === 'answer-question') {
-    answerSingleQuestion(msg.question, msg.options).then(sendResponse);
+    answerSingleQuestion(msg.question, msg.options, msg.qtype).then(sendResponse);
     return true;
   }
 
@@ -598,8 +604,8 @@ async function testConnection(settings) {
   }
 }
 
-// ---- 单题解答（非流式，用于自动答题） ----
-async function answerSingleQuestion(question, options) {
+// ---- 单题解答（非流式，用于自动答题，支持单选/多选/判断） ----
+async function answerSingleQuestion(question, options, qtype) {
   try {
     const stored = await chrome.storage.sync.get(Object.keys(DEFAULT_SETTINGS));
     const settings = { ...DEFAULT_SETTINGS, ...stored };
@@ -609,15 +615,18 @@ async function answerSingleQuestion(question, options) {
     }
 
     const endpoint = normalizeEndpoint(settings.apiEndpoint);
+    const opts = Array.isArray(options) ? options : [];
 
     // 构建选项文本
-    const optionsText = options
+    const optionsText = opts
       .map(o => `${o.letter}. ${o.text}`)
       .join('\n');
 
+    const typeHint = qtype === 'multi' ? '多选题' : (qtype === 'judge' ? '判断题' : '单选题');
+
     const messages = [
       { role: 'system', content: AUTO_ANSWER_PROMPT },
-      { role: 'user', content: `题目：${question}\n\n选项：\n${optionsText}` }
+      { role: 'user', content: `【题型】${typeHint}\n\n题目：${question}\n\n选项：\n${optionsText}` }
     ];
 
     const res = await fetch(endpoint, {
@@ -629,7 +638,7 @@ async function answerSingleQuestion(question, options) {
       body: JSON.stringify({
         model: settings.model,
         messages,
-        max_tokens: 300,
+        max_tokens: 400,
         temperature: 0.1
       })
     });
@@ -642,32 +651,40 @@ async function answerSingleQuestion(question, options) {
     const data = await res.json();
     const content = data.choices?.[0]?.message?.content || '';
 
-    // 解析 AI 回复：第一行是答案字母，第二行是解析
-    const lines = content.trim().split('\n').filter(l => l.trim());
-    let letter = '';
-    let reason = '';
+    // 允许的选项字母集合
+    const allowed = {};
+    opts.forEach(o => { if (o && o.letter) allowed[String(o.letter).toUpperCase()] = true; });
 
-    // 尝试从第一行提取字母 [A-D]
-    const letterMatch = lines[0]?.match(/[A-D]/);
-    if (letterMatch) {
-      letter = letterMatch[0];
+    const lines = content.trim().split('\n').map(l => l.trim()).filter(Boolean);
+    let letters = [];
+
+    // 1) 从第一行提取字母
+    const first = lines[0] || '';
+    (first.toUpperCase().match(/[A-Z]/g) || []).forEach(L => {
+      if (allowed[L] && letters.indexOf(L) < 0) letters.push(L);
+    });
+    // 2) 全局“答案：X”兜底
+    if (letters.length === 0) {
+      const gm = content.match(/答案[：:]\s*([A-Za-z]+)/);
+      if (gm) (gm[1].toUpperCase().match(/[A-Z]/g) || []).forEach(L => {
+        if (allowed[L] && letters.indexOf(L) < 0) letters.push(L);
+      });
     }
-    // 如果第一行没找到，尝试在整个回复中找
-    if (!letter) {
-      const globalMatch = content.match(/答案[：:]\s*([A-D])/);
-      if (globalMatch) letter = globalMatch[1];
-    }
-    if (!letter) {
-      // 最后尝试匹配任意孤单的 [A-D] 字母
-      const fallback = content.match(/^[A-D]$/m);
-      if (fallback) letter = fallback[0];
+    // 3) 判断题文字兜底（AI 误用“对/错”）
+    if (letters.length === 0 && qtype === 'judge') {
+      if (/对|正确|true/i.test(content) && allowed['A']) letters.push('A');
+      else if (/错|错误|false/i.test(content) && allowed['B']) letters.push('B');
     }
 
-    reason = lines.slice(1).join(' ').trim() ||
-             lines[0]?.replace(/^[A-D][.、，,。\s]*/, '').trim() ||
-             '';
+    // 单选只保留一个
+    if (qtype !== 'multi') letters = letters.slice(0, 1);
+    letters.sort();
 
-    return { letter, reason: reason.slice(0, 100) };
+    let reason = lines.slice(1).join(' ').trim()
+      || (lines[0] || '').replace(/^[\sA-Za-z.、，,。:：]+/, '').trim()
+      || '';
+
+    return { letter: letters.join(''), letters: letters, reason: reason.slice(0, 120) };
   } catch (err) {
     return { error: err.message };
   }

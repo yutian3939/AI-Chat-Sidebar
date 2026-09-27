@@ -390,7 +390,7 @@
       syncFromStorage();
       // 启动轮询：每 800ms 检查是否有新步骤
       startSyncPoll();
-      C.isHomework = !!document.querySelector('.questionLi[typename="单选题"]');
+      C.isHomework = !!document.querySelector('.questionLi[typename="单选题"], .questionLi[typename="多选题"], .questionLi[typename="判断题"]');
       C.$autoRow.style.display = C.isHomework ? 'flex' : 'none';
       if (C.isHomework) C.$autoStatus.textContent = '';
       // 页面感知：自动提取当前页面内容
