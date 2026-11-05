@@ -205,6 +205,13 @@ window.AIChatTemplate = function(I) {
       '</button>' +
       '<span class="auto-status" id="auto-status"></span>' +
     '</div>' +
+    '<div class="auto-row" id="course-row" style="display:none">' +
+      '<button class="auto-btn" id="btn-course" title="自动完成课程（视频/资源/随堂测验）">' +
+        '<div class="auto-btn-fill" id="course-btn-fill" style="width:0%"></div>' +
+        '<span class="auto-btn-text" id="course-btn-text">' + I.AUTO + '自动刷课</span>' +
+      '</button>' +
+      '<span class="auto-status" id="course-status"></span>' +
+    '</div>' +
     // Agent 状态栏
     '<div class="agent-status-bar" id="agent-status-bar" style="display:none">' +
       '<span class="agent-dot" id="agent-dot"></span>' +

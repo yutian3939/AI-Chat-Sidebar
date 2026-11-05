@@ -37,6 +37,7 @@
   const SP = window.AIChatSettings;
   const HP = window.AIChatHistory;
   const V = window.AIChatVision;
+  const CX = window.AIChatChaoxing;
 
   // ======================== 共享上下文 ========================
   window.__CTX__ = {
@@ -227,6 +228,12 @@
   C.$autoRow = shadow.getElementById('auto-row');
   C.$autoBtnFill = shadow.getElementById('auto-btn-fill');
   C.$autoBtnText = shadow.getElementById('auto-btn-text');
+  // 超星刷课
+  C.$courseRow = shadow.getElementById('course-row');
+  C.$btnCourse = shadow.getElementById('btn-course');
+  C.$courseStatus = shadow.getElementById('course-status');
+  C.$courseBtnFill = shadow.getElementById('course-btn-fill');
+  C.$courseBtnText = shadow.getElementById('course-btn-text');
   C.$historyPanel = shadow.getElementById('history-panel');
   C.$historyList = shadow.getElementById('history-list');
   C.$settingsPanel = shadow.getElementById('settings-panel');
@@ -390,9 +397,11 @@
       syncFromStorage();
       // 启动轮询：每 800ms 检查是否有新步骤
       startSyncPoll();
-      C.isHomework = !!document.querySelector('.questionLi[typename="单选题"], .questionLi[typename="多选题"], .questionLi[typename="判断题"]');
+      C.isHomework = !!document.querySelector('.questionLi[typename="单选题"], .questionLi[typename="多选题"], .questionLi[typename="判断题"], .singleQuesId');
       C.$autoRow.style.display = C.isHomework ? 'flex' : 'none';
       if (C.isHomework) C.$autoStatus.textContent = '';
+      // 超星课程页：显示自动刷课按钮
+      if (CX) CX.refreshVisibility();
       // 页面感知：自动提取当前页面内容
       if (C.autoContext && !C._autoContextAdded && C.attachedFiles.length === 0) {
         V.addCurrentPageContext();
@@ -1226,6 +1235,7 @@
   AA.bindEvents();
   if (SS) { SS.bindEvents(); SS.loadPrefs(); }
   if (V) { V.bindEvents(); V.loadPrefs(); }
+  if (CX) { CX.bindEvents(); }
 
   // ======================== 跨标签页会话同步 ========================
   // 打开侧边栏 / 新标签页加载时，从 storage 拉取最新会话数据

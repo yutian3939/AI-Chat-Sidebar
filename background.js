@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS = {
 };
 
 // 自动答题独立提示词（与聊天提示词分离，支持单选/多选/判断）
+// 强制 JSON 结构化输出，便于稳定解析
 const AUTO_ANSWER_PROMPT = `你是一个严谨的作业答题助手。请仔细分析题目和所有选项后作答。
 
 【题型说明】
@@ -23,16 +24,19 @@ const AUTO_ANSWER_PROMPT = `你是一个严谨的作业答题助手。请仔细�
 - 多选题：有 2 个或以上正确选项
 - 判断题：A 表示“对”，B 表示“错”
 
-【输出格式——严格遵循，不要输出任何其他内容】
-第一行：正确答案的字母。
-  · 单选题 / 判断题：只写一个字母（如：A）
-  · 多选题：把所有正确字母按顺序连写（如：ABD），不要加逗号、空格或顿号
-第二行：一句话简要解析
+【输出要求——强制 JSON】
+只输出一个 JSON 对象，不要输出任何其他文字、解释、代码块标记或多余符号：
+{"answer":"A","reason":"不超过30字的简要解析"}
 
-【注意】
-- 第一行只能出现字母，不要写题号、标点或汉字
-- 字母必须来自给定选项
-- 多选题务必选出全部正确项，不要遗漏`;
+字段说明：
+- answer：正确选项的字母。单选题/判断题只填一个字母（如 "A"）；多选题按顺序连写全部字母（如 "ABD"），不要加逗号、空格或顿号
+- reason：一句话简要解析
+
+严格要求：
+- 必须输出合法 JSON，且必须包含 answer 字段
+- answer 里的字母必须来自给定选项
+- 多选题务必选出全部正确项，不要遗漏
+- 严禁输出 JSON 以外的任何内容`;
 
 /**
  * 安全发送 port 消息（port 断开时不抛异常）
@@ -604,6 +608,91 @@ async function testConnection(settings) {
   }
 }
 
+// ---- 从 AI 自由文本中解析选项字母（尽量容错） ----
+function parseAnswerLetters(content, opts, qtype) {
+  var allowed = {};   // letter -> text
+  (opts || []).forEach(function(o) {
+    if (o && o.letter) allowed[String(o.letter).toUpperCase()] = o.text || '';
+  });
+  var letters = [];
+  function add(L) {
+    if (!L) return;
+    L = String(L).toUpperCase();
+    if (allowed[L] && letters.indexOf(L) < 0) letters.push(L);
+  }
+
+  // 全角字母 → 半角
+  var text = String(content || '').replace(/[Ａ-Ｚａ-ｚ]/g, function(ch) {
+    return String.fromCharCode(ch.charCodeAt(0) - 0xFEE0);
+  });
+  var up = text.toUpperCase();
+
+  // 0) JSON 结构化输出 {"answer":"ABD","reason":"..."}
+  try {
+    var mJson = text.match(/\{[\s\S]*\}/);
+    if (mJson) {
+      var obj = JSON.parse(mJson[0]);
+      var ans = obj.answer != null ? obj.answer
+              : (obj.answers != null ? obj.answers
+              : (obj.letters != null ? obj.letters
+              : (obj.result != null ? obj.result : '')));
+      if (Array.isArray(ans)) ans = ans.join('');
+      (String(ans).toUpperCase().match(/[A-H]/g) || []).forEach(add);
+      if (letters.length) { if (qtype !== 'multi') letters = letters.slice(0, 1); letters.sort(); return letters; }
+    }
+  } catch (e) { /* 非 JSON，继续走文本解析 */ }
+
+  // 1) “答案：X” / “正确答案为 X” 等
+  var mAns = text.match(/(?:答案|正确答案|应选|选择|正确选项|正确的是|答案为|选项)\s*[是为：:、]?\s*([A-H]{1,8})/i);
+  if (mAns) (mAns[1].toUpperCase().match(/[A-H]/g) || []).forEach(add);
+
+  // 2) 带分隔符的字母组 “A、B、D” “A/B/D” “A和B”
+  if (!letters.length) {
+    var mGroup = text.match(/([A-H](?:\s*[、,，.．\/和及与]\s*[A-H]){1,7})/i);
+    if (mGroup) (mGroup[1].toUpperCase().match(/[A-H]/g) || []).forEach(add);
+  }
+
+  // 3) 首行字母（可能连写 ABD）
+  if (!letters.length) {
+    var first = ((text.split('\n')[0]) || '').trim();
+    var mFirst = first.match(/^[（(\[【\s]*([A-H]{1,8})/i);
+    if (mFirst) (mFirst[1].toUpperCase().match(/[A-H]/g) || []).forEach(add);
+  }
+
+  // 4) 判断题文字
+  if (!letters.length && qtype === 'judge') {
+    if (/(正确|对的|说法正确|√|true)/i.test(text)) add('A');
+    if (!letters.length && /(错误|不对|说法错误|×|false)/i.test(text)) add('B');
+  }
+
+  // 5) 文字匹配：AI 直接给出了选项内容
+  if (!letters.length) {
+    var plain = text.replace(/\s+/g, '');
+    (opts || []).forEach(function(o) {
+      if (!o || !o.text) return;
+      var t = String(o.text).replace(/\s+/g, '');
+      if (t.length >= 4 && plain.indexOf(t) >= 0) add(o.letter);
+    });
+  }
+
+  // 6) 最后兜底：全文出现的合法字母
+  if (!letters.length) {
+    var mAny = up.match(/[A-H]/g) || [];
+    if (qtype === 'multi') {
+      mAny.forEach(add);
+    } else {
+      for (var i = 0; i < mAny.length; i++) {
+        if (allowed[mAny[i]]) { add(mAny[i]); break; }
+      }
+    }
+  }
+
+  // 单选/判断只保留一个
+  if (qtype !== 'multi') letters = letters.slice(0, 1);
+  letters.sort();
+  return letters;
+}
+
 // ---- 单题解答（非流式，用于自动答题，支持单选/多选/判断） ----
 async function answerSingleQuestion(question, options, qtype) {
   try {
@@ -629,62 +718,91 @@ async function answerSingleQuestion(question, options, qtype) {
       { role: 'user', content: `【题型】${typeHint}\n\n题目：${question}\n\n选项：\n${optionsText}` }
     ];
 
-    const res = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': 'Bearer ' + cleanStr(settings.apiKey)
-      },
-      body: JSON.stringify({
+    // 单次模型调用（可指定是否使用 json_object 结构化输出）
+    async function callModel(useJson) {
+      const body = {
         model: settings.model,
-        messages,
-        max_tokens: 400,
-        temperature: 0.1
-      })
-    });
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      return { error: `API 错误 (${res.status}): ${text || res.statusText}` };
-    }
-
-    const data = await res.json();
-    const content = data.choices?.[0]?.message?.content || '';
-
-    // 允许的选项字母集合
-    const allowed = {};
-    opts.forEach(o => { if (o && o.letter) allowed[String(o.letter).toUpperCase()] = true; });
-
-    const lines = content.trim().split('\n').map(l => l.trim()).filter(Boolean);
-    let letters = [];
-
-    // 1) 从第一行提取字母
-    const first = lines[0] || '';
-    (first.toUpperCase().match(/[A-Z]/g) || []).forEach(L => {
-      if (allowed[L] && letters.indexOf(L) < 0) letters.push(L);
-    });
-    // 2) 全局“答案：X”兜底
-    if (letters.length === 0) {
-      const gm = content.match(/答案[：:]\s*([A-Za-z]+)/);
-      if (gm) (gm[1].toUpperCase().match(/[A-Z]/g) || []).forEach(L => {
-        if (allowed[L] && letters.indexOf(L) < 0) letters.push(L);
+        messages: messages.slice(),
+        max_tokens: 500,
+        temperature: 0
+      };
+      if (useJson) body.response_format = { type: 'json_object' };
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + cleanStr(settings.apiKey)
+        },
+        body: JSON.stringify(body)
       });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        const err = new Error(`API 错误 (${res.status}): ${text || res.statusText}`);
+        err.status = res.status;
+        throw err;
+      }
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
     }
-    // 3) 判断题文字兜底（AI 误用“对/错”）
-    if (letters.length === 0 && qtype === 'judge') {
-      if (/对|正确|true/i.test(content) && allowed['A']) letters.push('A');
-      else if (/错|错误|false/i.test(content) && allowed['B']) letters.push('B');
+
+    // 1) 首选 JSON 结构化输出；端点不支持时自动回退到普通模式
+    let useJson = true;
+    let content = '';
+    try {
+      content = await callModel(true);
+    } catch (e) {
+      if (e.status === 400 || e.status === 404 || e.status === 422) {
+        useJson = false;
+        content = await callModel(false);
+      } else {
+        throw e;
+      }
     }
 
-    // 单选只保留一个
-    if (qtype !== 'multi') letters = letters.slice(0, 1);
-    letters.sort();
+    let letters = parseAnswerLetters(content, opts, qtype);
 
-    let reason = lines.slice(1).join(' ').trim()
-      || (lines[0] || '').replace(/^[\sA-Za-z.、，,。:：]+/, '').trim()
-      || '';
+    // 1.5) 返回为空（部分端点对 json_object 支持不完整）→ 用普通模式重试一次
+    if (!letters.length && !content.trim() && useJson) {
+      try {
+        useJson = false;
+        content = await callModel(false);
+        letters = parseAnswerLetters(content, opts, qtype);
+      } catch (e) { /* 忽略，继续走修复 */ }
+    }
 
-    return { letter: letters.join(''), letters: letters, reason: reason.slice(0, 120) };
+    // 2) 解析失败 → 强制修复重试（校验 + 自我修正，主流 Agent 做法）
+    if (!letters.length) {
+      try {
+        messages.push({ role: 'assistant', content: content || '(空)' });
+        messages.push({
+          role: 'user',
+          content: '你上一次没有给出可解析的答案。现在只输出正确选项的字母，不要任何汉字、解释或标点：' +
+            (qtype === 'multi' ? '多选题连写全部字母，例如 ABD' : '只输出单个字母，例如 A')
+        });
+        const repaired = await callModel(useJson);
+        if (repaired) content = content + '\n---修复---\n' + repaired;
+        letters = parseAnswerLetters(repaired, opts, qtype);
+        if (!letters.length) letters = parseAnswerLetters(content, opts, qtype);
+      } catch (e2) { /* 修复失败则忽略，返回空 */ }
+    }
+
+    // 3) 提取解析（优先取 JSON 的 reason 字段）
+    let reason = '';
+    try {
+      const jm = content.match(/\{[\s\S]*\}/);
+      if (jm) {
+        const jo = JSON.parse(jm[0]);
+        if (jo && jo.reason) reason = String(jo.reason);
+      }
+    } catch (e) { /* 非 JSON */ }
+    if (!reason) {
+      const lines = content.trim().split('\n').map(l => l.trim()).filter(Boolean);
+      reason = lines.slice(1).join(' ').trim()
+        || (lines[0] || '').replace(/^[\sA-Za-z.、，,。:：{"]+/, '').trim()
+        || '';
+    }
+
+    return { letter: letters.join(''), letters: letters, reason: reason.slice(0, 120), raw: content.slice(0, 600) };
   } catch (err) {
     return { error: err.message };
   }

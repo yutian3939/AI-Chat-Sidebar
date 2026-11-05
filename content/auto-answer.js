@@ -12,19 +12,52 @@
 
   function sleep(ms) { return new Promise(function(r) { setTimeout(r, ms); }); }
 
+  // 递归收集同源 iframe 文档
+  function collectDocs(doc) {
+    var docs = [doc];
+    var frames;
+    try { frames = doc.querySelectorAll('iframe'); } catch (e) { frames = []; }
+    for (var i = 0; i < frames.length; i++) {
+      var d = null;
+      try { d = frames[i].contentDocument; } catch (e) { d = null; }
+      if (d && d.documentElement) docs = docs.concat(collectDocs(d));
+    }
+    return docs;
+  }
+
+  // 在指定文档中找「暂时保存」按钮（学习通结构：#tempsave span，外层 a.btnSave）
+  function findSaveBtn(doc) {
+    var span = doc.getElementById ? doc.getElementById('tempsave') : null;
+    if (span) return span.closest ? (span.closest('a') || span) : span;
+    var a = doc.querySelector('a.btnSave');
+    if (a) return a;
+    // 兜底：按文本匹配（排除「提交」）
+    var links = doc.querySelectorAll('a, button');
+    for (var i = 0; i < links.length; i++) {
+      var t = (links[i].textContent || '').replace(/\s+/g, '');
+      if (t.indexOf('暂时保存') >= 0 || t.indexOf('正在暂存') >= 0) return links[i];
+    }
+    return null;
+  }
+
   function clickSaveButton() {
     try {
-      if (typeof window.saveWork === 'function') {
-        window.saveWork();
-        return true;
-      }
-      var saveLink = document.querySelector('a[tabindex="0"]');
-      if (saveLink && saveLink.textContent.includes('暂时保存')) {
-        saveLink.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
-        return true;
+      var docs = collectDocs(document);
+      for (var i = 0; i < docs.length; i++) {
+        var btn = findSaveBtn(docs[i]);
+        if (!btn) continue;
+        try {
+          btn.click();
+          return true;
+        } catch (e) {
+          try {
+            btn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+            return true;
+          } catch (e2) {}
+        }
       }
       return false;
-    } catch(e) { return false; }
+    } catch (e) { return false; }
   }
 
   // 判断题型：single / multi / judge（不支持的类型返回 null）
@@ -36,94 +69,171 @@
     return null; // 填空 / 简答 等暂不支持
   }
 
+  // 判断题 data(true/false) → 字母 A/B
+  function judgeLetter(type, dataVal, letterEl) {
+    if (type === 'judge') {
+      if (dataVal === 'true' || dataVal === '1' || dataVal === '对') return 'A';
+      if (dataVal === 'false' || dataVal === '0' || dataVal === '错') return 'B';
+      return (letterEl.textContent || '').trim().toUpperCase();
+    }
+    return dataVal.toUpperCase();
+  }
+
+  function pushQuestion(questions, qnum, qid, type, questionText, options, answered) {
+    if (!questionText || options.length === 0) return;
+    // 按字母排序，便于 AI 阅读与作答
+    options.sort(function(a, b) { return a.letter < b.letter ? -1 : (a.letter > b.letter ? 1 : 0); });
+    questions.push({
+      qnum: qnum, qid: qid, type: type,
+      question: questionText, options: options, answered: answered
+    });
+  }
+
   function extractQuestions() {
+    return extractQuestionsA().concat(extractQuestionsB());
+  }
+
+  // 结构 A：.questionLi[typename]（章节测验/回顾页）
+  function extractQuestionsA() {
     var questions = [];
-    var qDivs = document.querySelectorAll('.questionLi');
-    qDivs.forEach(function(qDiv, idx) {
-      var type = getQType(qDiv);
-      if (!type) return; // 跳过不支持的题型
+    collectDocs(document).forEach(function(doc) {
+      doc.querySelectorAll('.questionLi[typename]').forEach(function(qDiv, idx) {
+        var type = getQType(qDiv);
+        if (!type) return;
 
-      var qid = qDiv.getAttribute('data');
-      if (!qid) return;
-      var answerInput = document.getElementById('answer' + qid);
-      var answered = answerInput ? !!answerInput.value.trim() : false;
+        var qid = qDiv.getAttribute('data');
+        if (!qid) return;
+        var answerInput = doc.getElementById('answer' + qid);
+        var answered = answerInput ? !!answerInput.value.trim() : false;
 
-      var h3 = qDiv.querySelector('.mark_name');
-      var questionText = '';
-      var qnum = idx + 1;
-      if (h3) {
-        var raw = h3.textContent;
-        var numMatch = raw.match(/^\s*(\d+)/);
-        if (numMatch) qnum = parseInt(numMatch[1], 10);
-        questionText = raw
-          .replace(/^\s*\d+\.\s*/, '')
-          .replace(/[（(](单选题|多选题|判断题|填空题)[^）)]*[）)]/g, '')
-          .trim();
-      }
-
-      var options = [];
-      qDiv.querySelectorAll('.answerBg').forEach(function(opt) {
-        // 单选/判断用 .num_option，多选用 .num_option_dx
-        var letterEl = opt.querySelector('.num_option_dx, .num_option');
-        var textEl = opt.querySelector('.answer_p');
-        if (!letterEl || !textEl) return;
-
-        var dataVal = letterEl.getAttribute('data') || '';
-        var text = (textEl.textContent || '').replace(/\s+/g, ' ').trim();
-        if (!dataVal || !text) return;
-
-        var letter;
-        if (type === 'judge') {
-          // 判断题：data 为 true/false，映射为 A(对) / B(错)
-          if (dataVal === 'true' || dataVal === '1' || dataVal === '对') letter = 'A';
-          else if (dataVal === 'false' || dataVal === '0' || dataVal === '错') letter = 'B';
-          else letter = (letterEl.textContent || '').trim().toUpperCase();
-        } else {
-          letter = dataVal.toUpperCase();
+        var h3 = qDiv.querySelector('.mark_name');
+        var questionText = '';
+        var qnum = idx + 1;
+        if (h3) {
+          var raw = h3.textContent;
+          var numMatch = raw.match(/^\s*(\d+)/);
+          if (numMatch) qnum = parseInt(numMatch[1], 10);
+          questionText = raw
+            .replace(/^\s*\d+\.\s*/, '')
+            .replace(/[（(](单选题|多选题|判断题|填空题)[^）)]*[）)]/g, '')
+            .trim();
         }
-        if (!letter) return;
 
-        options.push({ letter: letter, text: text, data: dataVal });
-      });
-
-      if (questionText && options.length > 0) {
-        // 按字母排序，便于 AI 阅读与作答
-        options.sort(function(a, b) { return a.letter < b.letter ? -1 : (a.letter > b.letter ? 1 : 0); });
-        questions.push({
-          qnum: qnum,
-          qid: qid,
-          type: type,
-          question: questionText,
-          options: options,
-          answered: answered
+        var options = [];
+        qDiv.querySelectorAll('.answerBg').forEach(function(opt) {
+          var letterEl = opt.querySelector('.num_option_dx, .num_option');
+          var textEl = opt.querySelector('.answer_p');
+          if (!letterEl || !textEl) return;
+          var dataVal = letterEl.getAttribute('data') || '';
+          var text = (textEl.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!dataVal || !text) return;
+          var letter = judgeLetter(type, dataVal, letterEl);
+          if (!letter) return;
+          options.push({ letter: letter, text: text, data: dataVal });
         });
-      }
+
+        pushQuestion(questions, qnum, qid, type, questionText, options, answered);
+      });
     });
     return questions;
   }
 
-  // 按 data 值填写（单选/多选可传数组，判断题 data 为 true/false）
+  // 结构 B：.singleQuesId（作业 doHomeWork 页）
+  function extractQuestionsB() {
+    var questions = [];
+    collectDocs(document).forEach(function(doc) {
+      doc.querySelectorAll('.singleQuesId').forEach(function(qDiv, idx) {
+        var qid = qDiv.getAttribute('data') || (qDiv.id || '').replace('question', '');
+        if (!qid) return;
+        if (qDiv.classList.contains('questionLi')) return; // 避免与结构 A 重复
+
+        var answerInput = doc.getElementById('answer' + qid);
+        var answered = answerInput ? !!answerInput.value.trim() : false;
+
+        var titleWrap = qDiv.querySelector('.Zy_TItle');
+        var tagEl = qDiv.querySelector('.newZy_TItle');
+        var typeText = tagEl ? tagEl.textContent : '';
+        var type = 'single';
+        if (typeText.indexOf('多选') >= 0) type = 'multi';
+        else if (typeText.indexOf('判断') >= 0) type = 'judge';
+        else if (typeText.indexOf('填空') >= 0) return; // 填空题暂不支持
+
+        // 题干：取 .Zy_TItle 内容 div（排除题号 <i> 和题型标签）
+        var contentDiv = qDiv.querySelector('.Zy_TItle > div') || titleWrap;
+        var questionText = '';
+        if (contentDiv) {
+          questionText = contentDiv.textContent || '';
+          if (tagEl && tagEl.textContent) questionText = questionText.replace(tagEl.textContent, '');
+          questionText = questionText.replace(/\s+/g, ' ').trim();
+        }
+
+        // 题号
+        var qnum = idx + 1;
+        var numEl = qDiv.querySelector('.Zy_TItle > i') || qDiv.querySelector('.Zy_TItle i.fl');
+        if (numEl) { var n = parseInt((numEl.textContent || '').trim(), 10); if (!isNaN(n)) qnum = n; }
+
+        var options = [];
+        qDiv.querySelectorAll('ul.Zy_ulTop > li').forEach(function(li) {
+          var letterEl = li.querySelector('.num_option_dx, .num_option');
+          var textEl = li.querySelector('.after') || li.querySelector('.answer_p');
+          if (!letterEl || !textEl) return;
+          var dataVal = letterEl.getAttribute('data') || '';
+          var text = (textEl.textContent || '').replace(/\s+/g, ' ').trim();
+          if (!dataVal || !text) return;
+          var letter = judgeLetter(type, dataVal, letterEl);
+          if (!letter) return;
+          options.push({ letter: letter, text: text, data: dataVal });
+        });
+
+        pushQuestion(questions, qnum, qid, type, questionText, options, answered);
+      });
+    });
+    return questions;
+  }
+
+  // 按 data 值填写（单选/多选可传数组，判断题 data 为 true/false；跨同源 iframe）
   function fillAnswer(qid, values) {
     var arr = Array.isArray(values) ? values : [values];
     var any = false;
+    var docs = collectDocs(document);
     arr.forEach(function(v) {
       if (v === null || v === undefined || v === '') return;
-      var span = document.querySelector('.choice' + qid + '[data="' + v + '"]');
-      if (!span) {
-        span = document.querySelector('.answerBg[qid="' + qid + '"] .num_option[data="' + v + '"]')
-            || document.querySelector('.answerBg[qid="' + qid + '"] .num_option_dx[data="' + v + '"]');
-      }
-      if (span) {
-        var bg = span.closest('.answerBg');
-        if (bg) { bg.click(); bg.focus(); any = true; }
+      for (var i = 0; i < docs.length; i++) {
+        var doc = docs[i];
+        var span = doc.querySelector('.choice' + qid + '[data="' + v + '"]');
+        if (!span) {
+          span = doc.querySelector('.answerBg[qid="' + qid + '"] .num_option[data="' + v + '"]')
+              || doc.querySelector('.answerBg[qid="' + qid + '"] .num_option_dx[data="' + v + '"]');
+        }
+        if (span) {
+          // 结构 A 点 .answerBg；结构 B 点外层 <li>（onclick=addChoice）；否则点自身
+          var target = span.closest('.answerBg') || span.closest('li') || span;
+          try { target.click(); } catch (e) {}
+          if (target.focus) { try { target.focus(); } catch (e) {} }
+          any = true;
+          break;
+        }
       }
     });
     return any;
   }
 
   function scrollToQuestion(qid) {
-    var qEl = document.getElementById('question' + qid);
-    if (qEl) qEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    var docs = collectDocs(document);
+    for (var i = 0; i < docs.length; i++) {
+      var qEl = docs[i].getElementById('question' + qid);
+      if (qEl) { qEl.scrollIntoView({ behavior: 'smooth', block: 'center' }); return; }
+    }
+  }
+
+  // 跨同源 iframe 取答案输入框
+  function getAnswerInput(qid) {
+    var docs = collectDocs(document);
+    for (var i = 0; i < docs.length; i++) {
+      var el = docs[i].getElementById('answer' + qid);
+      if (el) return el;
+    }
+    return null;
   }
 
   // ======================== 需要 context 的函数 ========================
@@ -293,7 +403,7 @@
     if (C.isAutoAnswerPaused) {
       C.isAutoAnswerPaused = false;
       var doneCount = C.autoAnswerQueue.filter(function(q) {
-        var inp = document.getElementById('answer' + q.qid);
+        var inp = getAnswerInput(q.qid);
         return inp && inp.value.trim();
       }).length;
       updateAutoStatus(doneCount, C.autoAnswerQueue.length);
@@ -307,7 +417,7 @@
       var doneCount2 = 0;
       if (C.autoAnswerQueue.length > 0) {
         doneCount2 = C.autoAnswerQueue.filter(function(q) {
-          var inp = document.getElementById('answer' + q.qid);
+          var inp = getAnswerInput(q.qid);
           return inp && inp.value.trim();
         }).length;
       }
@@ -320,6 +430,11 @@
 
     // === 新开始 ===
     if (!C.isHomework) return;
+
+    // 先解密字体加密文本（超星 font-cxsecret）
+    if (window.AIChatFontDecode) {
+      try { await window.AIChatFontDecode(); } catch (e) {}
+    }
 
     var allQuestions = extractQuestions();
     var unanswered = C.skipAnswered
@@ -455,7 +570,6 @@
       }
 
       completedCount++;
-      if (completedCount % 3 === 0) clickSaveButton();
     }
 
     if (C.saveConversation) C.saveConversation();

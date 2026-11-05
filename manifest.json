@@ -13,11 +13,13 @@
       "matches": ["<all_urls>"],
       "js": [
         "lib/katex.min.js",
+        "lib/TyprMd5.js",
         "content/styles.js",
         "content/icons.js",
         "content/markdown.js",
         "content/vision.js",
         "content/auto-answer.js",
+        "content/chaoxing.js",
         "content/settings-panel.js",
         "content/screenshot.js",
         "content/template.js",
@@ -29,7 +31,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["lib/ocr-bridge.js", "lib/tesseract.min.js", "lib/tesseract-worker.min.js", "lib/tesseract-core/tesseract-core.wasm", "lib/tesseract-core/tesseract-core.wasm.js", "lib/tesseract-core/tesseract-core-simd.wasm", "lib/tesseract-core/tesseract-core-simd.wasm.js"],
+      "resources": ["lib/ocr-bridge.js", "lib/tesseract.min.js", "lib/tesseract-worker.min.js", "lib/tesseract-core/tesseract-core.wasm", "lib/tesseract-core/tesseract-core.wasm.js", "lib/tesseract-core/tesseract-core-simd.wasm", "lib/tesseract-core/tesseract-core-simd.wasm.js", "lib/chaoxing-font-table.json"],
       "matches": ["<all_urls>"]
     }
   ],
