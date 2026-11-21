@@ -169,6 +169,35 @@ window.AIChatTemplate = function(I) {
           '</div>' +
         '</div>' +
         '<div class="settings-section">' +
+          '<h3>WE Learn 自动练习</h3>' +
+          '<p class="settings-hint-sm">在 welearn.sflep.com 学习任务页点击「自动练习」，逐个打开练习并按课件官方答案填好，再按停留时间切换</p>' +
+          '<div class="field">' +
+            '<label>每个练习停留时间（分钟）</label>' +
+            '<div style="display:flex;gap:8px;align-items:center">' +
+              '<input type="number" id="settings-wl-min" value="10" min="1" max="120" step="1" style="width:80px">' +
+              '<span>~</span>' +
+              '<input type="number" id="settings-wl-max" value="15" min="1" max="120" step="1" style="width:80px">' +
+            '</div>' +
+            '<p class="settings-hint-sm">每次在该区间内随机取一个停留时长</p>' +
+          '</div>' +
+          '<label class="switch-row">' +
+            '<span class="switch-label">完成后提交答案（会记录首次正确率）</span>' +
+            '<span class="switch-track">' +
+              '<input type="checkbox" id="settings-wl-submit">' +
+              '<span class="switch-track-bg"></span>' +
+              '<span class="switch-thumb"></span>' +
+            '</span>' +
+          '</label>' +
+          '<label class="switch-row">' +
+            '<span class="switch-label">跳过已完成（有正确率，或点开后答案已填好的都不等待）</span>' +
+            '<span class="switch-track">' +
+              '<input type="checkbox" id="settings-wl-skip-done" checked>' +
+              '<span class="switch-track-bg"></span>' +
+              '<span class="switch-thumb"></span>' +
+            '</span>' +
+          '</label>' +
+        '</div>' +
+        '<div class="settings-section">' +
           '<h3>主题</h3>' +
           '<div class="field">' +
             '<select id="settings-theme">' +
@@ -211,6 +240,13 @@ window.AIChatTemplate = function(I) {
         '<span class="auto-btn-text" id="course-btn-text">' + I.AUTO + '自动刷课</span>' +
       '</button>' +
       '<span class="auto-status" id="course-status"></span>' +
+    '</div>' +
+    '<div class="auto-row" id="welearn-row" style="display:none">' +
+      '<button class="auto-btn" id="btn-welearn" title="WE Learn：自动完成练习（按官方答案填写，随机停留 10-15 分钟）">' +
+        '<div class="auto-btn-fill" id="welearn-btn-fill" style="width:0%"></div>' +
+        '<span class="auto-btn-text" id="welearn-btn-text">' + I.AUTO + '自动练习</span>' +
+      '</button>' +
+      '<span class="auto-status" id="welearn-status"></span>' +
     '</div>' +
     // Agent 状态栏
     '<div class="agent-status-bar" id="agent-status-bar" style="display:none">' +

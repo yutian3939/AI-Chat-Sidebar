@@ -251,13 +251,50 @@
     return false;
   }
 
+  // ======================== 后台保活（切换标签页不停） ========================
+
+  // 向指定文档主世界注入保活脚本
+  function injectVisInto(doc) {
+    try {
+      if (!doc || !doc.createElement || !doc.documentElement) return;
+      if (doc.getElementById && doc.getElementById('__cx_vis_fix')) return;
+      var s = doc.createElement('script');
+      s.id = '__cx_vis_fix';
+      s.src = chrome.runtime.getURL('lib/visibility-fix.js');
+      (doc.head || doc.documentElement).appendChild(s);
+    } catch (e) {}
+  }
+
+  // 向顶层及所有同源 iframe 注入
+  function injectVisibilityFix() {
+    injectVisInto(document);
+    try { allDocs(document).forEach(injectVisInto); } catch (e) {}
+  }
+
+  // 请求后台用 MAIN world 全 frame 注入（绕过页面 CSP，最可靠），并保留直接注入
+  var _lastVisReq = 0;
+  function requestVisibilityFix(force) {
+    var now = Date.now();
+    if (!force && now - _lastVisReq < 4000) return;
+    _lastVisReq = now;
+    injectVisibilityFix();
+    try {
+      chrome.runtime.sendMessage({ type: 'inject-visibility' }, function (resp) {
+        if (resp && resp.ok === false) console.log('[CX] MAIN world 注入失败:', resp.error);
+      });
+    } catch (e) {}
+  }
+
   // ======================== 播放全部媒体 ========================
 
   async function playMedia(media) {
+    requestVisibilityFix(true);
     var played = 0;
     for (var i = 0; i < media.length && !abort; i++) {
       var v = media[i];
       var tag = v.tagName.toLowerCase();
+      // 确保视频所在文档已注入保活脚本
+      if (v.ownerDocument) injectVisInto(v.ownerDocument);
       // 任务点已完成 → 跳过，不再播放
       if (isVideoFinished(v)) {
         status('任务点已完成，跳过 ' + (i + 1) + '/' + media.length);
@@ -278,6 +315,7 @@
         try { v.play(); } catch (e) {}
         await sleep(1000);
         guard++;
+        if (guard % 15 === 0) requestVisibilityFix(); // 周期性重注入，覆盖后加载的 frame
         if (guard > 10800) break; // 3 小时安全上限
       }
       logLine('■ 资源' + (i + 1) + ' 播放结束 (ended=' + v.ended + ', 进度=' + Math.round(v.currentTime || 0) + 's/' + dur + 's)');
@@ -569,6 +607,7 @@
       chapter++;
       status('检测资源... 第 ' + chapter + ' 节');
       logLine('═════ 第 ' + chapter + ' 节 ═════');
+      requestVisibilityFix(true);
       var media = [];
       for (var t = 0; t < 15 && !abort; t++) {
         await sleep(1000);
@@ -578,6 +617,7 @@
         if (t >= 3 && !hasAnyVideo() && (hasAttachContainer() || hasQuizContainer())) break;
       }
       if (abort) break;
+      requestVisibilityFix(true); // iframe 可能刚加载，再次注入保活
 
       if (media.length) {
         logLine('检测到 ' + media.length + ' 个媒体资源');

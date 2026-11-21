@@ -38,6 +38,7 @@
   const HP = window.AIChatHistory;
   const V = window.AIChatVision;
   const CX = window.AIChatChaoxing;
+  const WL = window.AIChatWeLearn;
 
   // ======================== 共享上下文 ========================
   window.__CTX__ = {
@@ -234,6 +235,12 @@
   C.$courseStatus = shadow.getElementById('course-status');
   C.$courseBtnFill = shadow.getElementById('course-btn-fill');
   C.$courseBtnText = shadow.getElementById('course-btn-text');
+  // WE Learn 自动练习
+  C.$welearnRow = shadow.getElementById('welearn-row');
+  C.$btnWelearn = shadow.getElementById('btn-welearn');
+  C.$welearnStatus = shadow.getElementById('welearn-status');
+  C.$welearnBtnFill = shadow.getElementById('welearn-btn-fill');
+  C.$welearnBtnText = shadow.getElementById('welearn-btn-text');
   C.$historyPanel = shadow.getElementById('history-panel');
   C.$historyList = shadow.getElementById('history-list');
   C.$settingsPanel = shadow.getElementById('settings-panel');
@@ -402,6 +409,8 @@
       if (C.isHomework) C.$autoStatus.textContent = '';
       // 超星课程页：显示自动刷课按钮
       if (CX) CX.refreshVisibility();
+      // WE Learn：显示自动练习按钮
+      if (WL) WL.refreshVisibility();
       // 页面感知：自动提取当前页面内容
       if (C.autoContext && !C._autoContextAdded && C.attachedFiles.length === 0) {
         V.addCurrentPageContext();
@@ -1236,6 +1245,7 @@
   if (SS) { SS.bindEvents(); SS.loadPrefs(); }
   if (V) { V.bindEvents(); V.loadPrefs(); }
   if (CX) { CX.bindEvents(); }
+  if (WL) { WL.bindEvents(); }
 
   // ======================== 跨标签页会话同步 ========================
   // 打开侧边栏 / 新标签页加载时，从 storage 拉取最新会话数据

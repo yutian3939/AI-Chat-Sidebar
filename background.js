@@ -119,6 +119,45 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return true;
   }
 
+  // 注入后台保活脚本（MAIN world，绕过页面 CSP，覆盖所有 frame）
+  if (msg.type === 'inject-visibility') {
+    (async () => {
+      try {
+        var tabId = _sender && _sender.tab ? _sender.tab.id : null;
+        if (tabId == null) { sendResponse({ ok: false, error: 'no tabId' }); return; }
+        await chrome.scripting.executeScript({
+          target: { tabId: tabId, allFrames: true },
+          world: 'MAIN',
+          files: ['lib/visibility-fix.js']
+        });
+        sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
+  // WE Learn：在 MAIN world（所有 frame）执行填答 / 启动 / 提交
+  if (msg.type === 'welearn-main') {
+    (async () => {
+      try {
+        var tabId = (_sender && _sender.tab) ? _sender.tab.id : null;
+        if (tabId == null) { sendResponse({ ok: false, error: 'no tabId' }); return; }
+        var results = await chrome.scripting.executeScript({
+          target: { tabId: tabId, allFrames: true },
+          world: 'MAIN',
+          func: welearnMainFunc,
+          args: [msg.op || 'fill', msg.sco || '']
+        });
+        sendResponse({ ok: true, results: results.map(function(r) { return r ? r.result : null; }) });
+      } catch (e) {
+        sendResponse({ ok: false, error: e.message });
+      }
+    })();
+    return true;
+  }
+
   // Agent 输入中转：用户在非原始标签页发消息时，追加到 Agent 会话
   if (msg.type === 'agent-input') {
     handleAgentInput(msg).then(sendResponse);
@@ -144,6 +183,136 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     return false;
   }
 });
+
+// ---- WE Learn：在页面 MAIN world 执行的函数（由 executeScript 注入） ----
+// op = 'start' | 'fill' | 'submit'
+// 说明：WE Learn 课件里每个填空/选项都带 data-solution（官方答案），
+//       且答题状态由课件自带的 jQuery 插件 .values() 维护。
+function welearnMainFunc(op, sco) {
+  var host = location.hostname;
+
+  // ---------- 在 WE Learn 任务页启动某个 SCO ----------
+  if (op === 'start') {
+    if (!/(^|\.)welearn\.sflep\.com$/i.test(host)) return null;
+    try {
+      if (typeof window.StartSCO === 'function') {
+        window.StartSCO(sco, 'true', '', '');
+        return { started: sco };
+      }
+    } catch (e) {}
+    var links = Array.prototype.slice.call(
+      document.querySelectorAll('a[href*="StartSCO"], a[onclick*="StartSCO"]')
+    );
+    for (var i = 0; i < links.length; i++) {
+      var raw = (links[i].getAttribute('href') || '') + (links[i].getAttribute('onclick') || '');
+      if (raw.indexOf("'" + sco + "'") >= 0) { links[i].click(); return { started: sco }; }
+    }
+    return { error: 'no-start-sco' };
+  }
+
+  // ---------- 以下只在课件 iframe 内执行 ----------
+  if (!/(^|\.)centercourseware\.sflep\.com$/i.test(host)) return null;
+
+  var $ = window.jQuery;
+  var out = {
+    url: location.href,
+    filled: 0, choices: 0, items: 0,
+    preFilled: 0, preChoices: 0, choiceTotal: 0,
+    noJq: !$
+  };
+
+  if (op === 'fill') {
+    // 填空 / 选词：写入官方答案
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-controltype^="filling"]'),
+      function(el) {
+        out.items++;
+
+        // 先看是否已经填过（用于「已填好 → 直接跳过、不等待」）
+        try {
+          if ($ && typeof $(el).values === 'function') {
+            var prev = $(el).values();
+            if (prev && prev.length && String(prev[0]).trim() !== '') out.preFilled++;
+          } else {
+            var pin = el.querySelector('input, textarea');
+            if (pin && pin.value && String(pin.value).trim() !== '') out.preFilled++;
+          }
+        } catch (e0) {}
+
+        var holder = el.querySelector('[data-solution]');
+        var sol = holder && holder.getAttribute('data-solution');
+        if (!sol) return;
+        var ok = false;
+        try {
+          if ($ && typeof $(el).values === 'function') { $(el).values(sol); ok = true; }
+        } catch (e) {}
+        if (!ok) {
+          try {
+            var inp = el.querySelector('input, textarea');
+            if (inp) {
+              inp.value = sol;
+              inp.dispatchEvent(new Event('input', { bubbles: true }));
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+              ok = true;
+            }
+          } catch (e2) {}
+        }
+        if (ok) out.filled++;
+        try {
+          var t = el.querySelector('[data-itemtype="input"]');
+          if (t && $) $(t).trigger('change');
+        } catch (e3) {}
+      }
+    );
+
+    // 选择题：点击正确选项
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-controltype="choice"]'),
+      function(g) {
+        out.choiceTotal++;
+        try {
+          if ($ && typeof $(g).values === 'function') {
+            var pv = $(g).values();
+            if (pv && pv.length && pv[0] !== '' && pv[0] != null) out.preChoices++;
+          }
+        } catch (e0) {}
+
+        var li = g.querySelector('li[data-solution]');
+        if (!li) return;
+        try {
+          if ($) $(li).trigger('click'); else li.click();
+          out.choices++;
+        } catch (e) {}
+      }
+    );
+    return out;
+  }
+
+  // ---------- 提交（可选）：点「提交」→ 确认「是」 ----------
+  if (op === 'submit') {
+    function findSubmit() {
+      var all = document.querySelectorAll('a, button, span, div');
+      for (var i = 0; i < all.length; i++) {
+        var el = all[i];
+        if (el.children.length > 0) continue;
+        if ((el.textContent || '').replace(/\s+/g, '') === '提交') return el;
+      }
+      return null;
+    }
+    var btn = findSubmit();
+    if (!btn) return { error: 'no-submit-button' };
+    btn.click();
+    setTimeout(function() {
+      var lis = document.querySelectorAll('a');
+      for (var i = 0; i < lis.length; i++) {
+        if ((lis[i].textContent || '').trim() === '是') { lis[i].click(); return; }
+      }
+    }, 900);
+    return { ok: true };
+  }
+
+  return null;
+}
 
 // ---- 截图工具 ----
 async function captureScreenshot(rect) {
