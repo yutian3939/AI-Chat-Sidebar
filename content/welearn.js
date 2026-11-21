@@ -59,8 +59,8 @@
       try {
         chrome.storage.local.get([PREF_KEY], function(data) {
           var p = (data && data[PREF_KEY]) || {};
-          if (p.minMin != null) prefs.minMin = Number(p.minMin) || 10;
-          if (p.maxMin != null) prefs.maxMin = Number(p.maxMin) || 15;
+          if (p.minMin != null) prefs.minMin = Math.max(0, Number(p.minMin) || 0);
+          if (p.maxMin != null) prefs.maxMin = Math.max(0, Number(p.maxMin) || 0);
           if (p.submit != null) prefs.submit = !!p.submit;
           if (p.skipDone != null) prefs.skipDone = !!p.skipDone;
           if (prefs.maxMin < prefs.minMin) prefs.maxMin = prefs.minMin;
@@ -68,6 +68,15 @@
         });
       } catch (e) { resolve(prefs); }
     });
+  }
+
+  // 停留时长（毫秒）：0 表示不停留
+  function pickDwellMs(minMin, maxMin) {
+    var lo = Math.max(0, Number(minMin) || 0) * 60000;
+    var hi = Math.max(0, Number(maxMin) || 0) * 60000;
+    if (hi < lo) hi = lo;
+    if (hi === 0) return 0;
+    return Math.round(lo + Math.random() * (hi - lo));
   }
 
   function savePrefs() {
@@ -87,8 +96,8 @@
     if ($skip) $skip.checked = prefs.skipDone;
 
     function commit() {
-      prefs.minMin = Math.max(1, parseInt(($min && $min.value) || '10', 10) || 10);
-      prefs.maxMin = Math.max(prefs.minMin, parseInt(($max && $max.value) || '15', 10) || 15);
+      prefs.minMin = Math.max(0, parseInt(($min && $min.value) || '0', 10) || 0);
+      prefs.maxMin = Math.max(prefs.minMin, parseInt(($max && $max.value) || '0', 10) || 0);
       prefs.submit = !!($submit && $submit.checked);
       prefs.skipDone = !!($skip && $skip.checked);
       savePrefs();
@@ -441,8 +450,11 @@
     renderLog();
     startLogWatch();
     logLine('队列共 ' + rest.length + ' 个练习，从第 ' + (startIdx + 1) + ' 个开始');
-    logLine('停留时间：' + prefs.minMin + '~' + prefs.maxMin + ' 分钟随机；' +
-      (prefs.submit ? '完成后提交' : '不提交（答案留在页面）') +
+    var dwellTxt = (prefs.minMin === 0 && prefs.maxMin === 0)
+      ? '不停留'
+      : (prefs.minMin + '~' + prefs.maxMin + ' 分钟随机');
+    logLine('停留时间：' + dwellTxt + '；' +
+      (prefs.submit ? '自动提交（停留结束后提交）' : '不提交（答案留在页面）') +
       '；跳过已完成：' + (prefs.skipDone ? '开' : '关'));
 
     var run = {
@@ -606,19 +618,19 @@
         (r.items ? '（共 ' + r.items + ' 空）' : ''));
       status(idxTxt + ' 已填 ' + r.filled + ' 空 / ' + r.choices + ' 道选择');
 
-      if (run.submit) {
-        await sleep(1200);
-        var sr = await mainWorld('submit');
-        logLine('提交：' + ((sr && sr.ok !== false) ? '已点击提交并确认' : ('失败 ' + ((sr && sr.error) || ''))));
-      }
-
-      var lo = (run.minMin || prefs.minMin) * 60000;
-      var hi = (run.maxMin || prefs.maxMin) * 60000;
-      if (hi < lo) hi = lo;
-      run.dwellMs = Math.round(lo + Math.random() * (hi - lo));
+      run.dwellMs = pickDwellMs(
+        run.minMin != null ? run.minMin : prefs.minMin,
+        run.maxMin != null ? run.maxMin : prefs.maxMin
+      );
       run.dwellStart = Date.now();
       run.phase = 'dwell';
       await setRun(run);
+
+      if (run.dwellMs <= 0) {
+        logLine('⏱ 停留 0 秒（不停留）→ 直接下一个');
+        await finishDwell(run);
+        return;
+      }
       logLine('⏱ 停留 ' + Math.round(run.dwellMs / 1000) + ' 秒后切换下一个');
     }
 
@@ -664,8 +676,24 @@
     timer = setTimeout(function() { goTaskPage(run); }, delayMs || 1200);
   }
 
+  // 提交：点「提交」并确认「是」
+  async function doSubmit(run) {
+    logLine('📤 提交答案…');
+    var sr = await mainWorld('submit');
+    var ok = !!(sr && sr.ok !== false && !sr.error);
+    logLine(ok ? '✓ 已提交（记录为首次答题正确率）'
+      : ('✗ 提交失败：' + ((sr && sr.error) || '未找到提交按钮')));
+    return ok;
+  }
+
   async function finishDwell(run) {
     clearTimers();
+    // 自动提交：等停留结束后再提交（不停留时即为填完即交）
+    if (run.submit) {
+      await sleep(500);
+      await doSubmit(run);
+      await sleep(2500);
+    }
     run.phase = 'next';
     run.doneScos = run.doneScos || [];
     if (run.currentSco && run.doneScos.indexOf(run.currentSco) < 0) run.doneScos.push(run.currentSco);
@@ -756,6 +784,7 @@
     isAnyWeLearnPage: isAnyWeLearnPage,
     parseTaskRows: parseTaskRows,
     isAlreadyAnswered: isAlreadyAnswered,
+    pickDwellMs: pickDwellMs,
     startFrom: startFrom,
     stop: stop,
     isRunning: function() { return running; }

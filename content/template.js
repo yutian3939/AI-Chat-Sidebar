@@ -174,14 +174,14 @@ window.AIChatTemplate = function(I) {
           '<div class="field">' +
             '<label>每个练习停留时间（分钟）</label>' +
             '<div style="display:flex;gap:8px;align-items:center">' +
-              '<input type="number" id="settings-wl-min" value="10" min="1" max="120" step="1" style="width:80px">' +
+              '<input type="number" id="settings-wl-min" value="10" min="0" max="120" step="1" style="width:80px">' +
               '<span>~</span>' +
-              '<input type="number" id="settings-wl-max" value="15" min="1" max="120" step="1" style="width:80px">' +
+              '<input type="number" id="settings-wl-max" value="15" min="0" max="120" step="1" style="width:80px">' +
             '</div>' +
-            '<p class="settings-hint-sm">每次在该区间内随机取一个停留时长</p>' +
+            '<p class="settings-hint-sm">每次在该区间内随机取一个停留时长；两个都填 0 表示不停留</p>' +
           '</div>' +
           '<label class="switch-row">' +
-            '<span class="switch-label">完成后提交答案（会记录首次正确率）</span>' +
+            '<span class="switch-label">自动提交（停留结束后自动提交答案，记录首次正确率）</span>' +
             '<span class="switch-track">' +
               '<input type="checkbox" id="settings-wl-submit">' +
               '<span class="switch-track-bg"></span>' +
