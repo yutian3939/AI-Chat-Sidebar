@@ -604,7 +604,7 @@
         var frames = (res.results || []).filter(Boolean);
         var agg = {
           filled: 0, choices: 0, items: 0, preFilled: 0, preChoices: 0,
-          choiceTotal: 0, multiClicks: 0, blanks: 0, tofs: 0, choiceN: 0, kind: '', error: ''
+          choiceTotal: 0, multiClicks: 0, blanks: 0, tofs: 0, choiceN: 0, picks: 0, kind: '', error: ''
         };
         frames.forEach(function(f) {
           if (typeof f.filled !== 'number') return;
@@ -618,6 +618,7 @@
           agg.blanks += f.blanks || 0;
           agg.tofs += f.tofs || 0;
           agg.choiceN += f.choiceN || 0;
+          agg.picks += f.picks || 0;
           if (f.kind) agg.kind = f.kind;
           if (f.error) agg.error = f.error;
         });
@@ -647,6 +648,7 @@
     if (r.blanks) parts.push('填空 ' + r.blanks);
     if (r.tofs) parts.push('判断 ' + r.tofs);
     if (r.choiceN) parts.push('单选 ' + r.choiceN);
+    if (r.picks) parts.push('词库选词 ' + r.picks);
     if (r.multiClicks) parts.push('点选 ' + r.multiClicks);
     if (!parts.length && r.filled) parts.push(r.filled + ' 空');
     if (!parts.length && r.choices) parts.push(r.choices + ' 处');

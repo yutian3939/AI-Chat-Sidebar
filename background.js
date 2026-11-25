@@ -229,7 +229,7 @@ function welearnMainFunc(op, sco) {
       url: location.href,
       filled: 0, choices: 0, items: 0,
       preFilled: 0, preChoices: 0, choiceTotal: 0,
-      blanks: 0, tofs: 0, choiceN: 0
+      blanks: 0, tofs: 0, choiceN: 0, picks: 0
     };
 
     var m = location.hash.match(/#\/([^\/]+)\/([^?\/]+)/);
@@ -246,8 +246,10 @@ function welearnMainFunc(op, sco) {
     } catch (e) { r.error = 'fetch-fail'; return r; }
 
     var doc = new DOMParser().parseFromString(txt, 'text/html');
+    // 源文件里一个空可能有多个可接受答案，用 " | " 分隔；取第一个与课件 key 一致
     var srcBlanks = Array.prototype.map.call(doc.querySelectorAll('et-blank'), function(e) {
-      return (e.textContent || '').trim();
+      var s = (e.textContent || '').trim();
+      return s.split('|')[0].trim();
     });
     var srcTofs = Array.prototype.map.call(doc.querySelectorAll('et-tof'), function(e) {
       return (e.getAttribute('key') || '').toLowerCase();
@@ -256,21 +258,79 @@ function welearnMainFunc(op, sco) {
       return (e.getAttribute('key') || '').toLowerCase();
     });
 
-    // 1) 填空
-    Array.prototype.forEach.call(document.querySelectorAll('et-blank'), function(b, i) {
-      var ans = srcBlanks[i];
-      if (ans == null || ans === '') return;
-      r.items++;
-      var ce = b.querySelector('[contenteditable]');
-      if (!ce) return;
-      if ((ce.textContent || '').trim() !== '') { r.preFilled++; return; }  // 已有答案不覆盖
+    // 1) 填空（普通输入 / 词库点选两种）
+    function sleep(ms) { return new Promise(function(rr) { setTimeout(rr, ms); }); }
+
+    // 在（优先同一 tab 的）选项库里找未被占用的同名选项
+    function findOptionFor(blank, ans) {
+      var scopes = [];
       try {
-        ce.focus();
-        ce.textContent = ans;
-        ce.dispatchEvent(new Event('input', { bubbles: true }));
+        var pane = blank.closest('tab');
+        if (pane) scopes.push(pane);
+      } catch (e) {}
+      scopes.push(document);
+      var fallback = null;
+      for (var s = 0; s < scopes.length; s++) {
+        var boxes = scopes[s].querySelectorAll('et-options');
+        for (var i = 0; i < boxes.length; i++) {
+          var lis = boxes[i].querySelectorAll('li');
+          for (var k = 0; k < lis.length; k++) {
+            if ((lis[k].textContent || '').trim() !== ans) continue;
+            if ((lis[k].className || '').indexOf('used') < 0) return lis[k];
+            if (!fallback) fallback = lis[k];
+          }
+        }
+        if (scopes[s] !== document && fallback) return fallback;
+      }
+      return fallback;
+    }
+
+    var liveBlanks = Array.prototype.slice.call(document.querySelectorAll('et-blank'));
+    for (var bi = 0; bi < liveBlanks.length; bi++) {
+      var b = liveBlanks[bi];
+      var ans = srcBlanks[bi];
+      if (ans == null || ans === '') continue;
+      r.items++;
+
+      var isNoInput = !!(b.hasAttribute && b.hasAttribute('noinput'));
+      var holder = b.querySelector(isNoInput ? '.blank' : '[contenteditable]');
+      if (!holder) continue;
+      if ((holder.textContent || '').trim() !== '') { r.preFilled++; continue; }  // 已有答案不覆盖
+
+      if (isNoInput) {
+        // 词库型：先切到该空所在的 tab（隐藏 tab 无法 focus），focus 后再点选项
+        try {
+          var pane = b.closest('tab');
+          if (pane && /ng-hide/.test(pane.className || '')) {
+            var tabs = pane.parentElement ? Array.prototype.filter.call(pane.parentElement.children, function(c) {
+              return c.tagName === 'TAB';
+            }) : [];
+            var paneIdx = tabs.indexOf(pane);
+            var tabEl = pane.closest('et-tab');
+            var heads = tabEl ? tabEl.querySelectorAll('[header] li') : [];
+            if (paneIdx >= 0 && heads[paneIdx]) { heads[paneIdx].click(); await sleep(200); }
+          }
+        } catch (e0) {}
+
+        try { holder.dispatchEvent(new FocusEvent('focus', { bubbles: true })); } catch (e1) {}
+
+        var optEl = findOptionFor(b, ans);
+        if (optEl) {
+          try {
+            optEl.click();
+            r.filled++; r.picks = (r.picks || 0) + 1;
+          } catch (e2) {}
+        }
+        continue;
+      }
+
+      try {
+        holder.focus();
+        holder.textContent = ans;
+        holder.dispatchEvent(new Event('input', { bubbles: true }));
         r.filled++; r.blanks++;
       } catch (e) {}
-    });
+    }
 
     // 2) 正误判断
     Array.prototype.forEach.call(document.querySelectorAll('et-tof'), function(t, i) {
@@ -328,14 +388,49 @@ function welearnMainFunc(op, sco) {
         var ctrl = ng.element(el).controller('etButton');
         if (ctrl && typeof ctrl.doAction === 'function') {
           ctrl.doAction();
-          await sleep(1200);
-          return { ok: true, via: 'controller' };
+          var confirmed = await confirmDialog();
+          return { ok: true, via: 'controller', confirmed: confirmed };
         }
       }
     } catch (e) {}
 
-    try { el.click(); await sleep(800); return { ok: true, via: 'click' }; }
+    try {
+      el.click();
+      var c2 = await confirmDialog();
+      return { ok: true, via: 'click', confirmed: c2 };
+    }
     catch (e2) { return { error: 'vc-submit-fail' }; }
+  }
+
+  // ---- 通用：等待并点击确认弹窗（继续提交 / 是 / 确定） ----
+  async function confirmDialog() {
+    function sleep(ms) { return new Promise(function(rr) { setTimeout(rr, ms); }); }
+    var yesRe = /继续提交|确定|确认提交|提交|是|OK|Yes/i;
+    for (var t = 0; t < 10; t++) {
+      await sleep(350);
+
+      // 1) 视听说：angular-confirm
+      var box = document.querySelector('.ng-confirm-box');
+      if (box && box.offsetParent !== null) {
+        var bs = box.querySelectorAll('.ng-confirm-buttons button');
+        var target = null;
+        for (var i = 0; i < bs.length; i++) {
+          if (yesRe.test((bs[i].textContent || '').trim())) { target = bs[i]; break; }
+        }
+        if (!target) target = box.querySelector('.btn-primary');
+        if (target) { target.click(); await sleep(600); return true; }
+      }
+
+      // 2) 综合英语：layui 层里的「是」
+      var links = document.querySelectorAll('a, button');
+      for (var k = 0; k < links.length; k++) {
+        var el = links[k];
+        if (el.offsetParent === null) continue;
+        var txt = (el.textContent || '').trim();
+        if (txt === '是' || txt === '确定' || txt === '继续提交') { el.click(); return true; }
+      }
+    }
+    return false;
   }
 
   if (op === 'fill') {
@@ -447,13 +542,7 @@ function welearnMainFunc(op, sco) {
     var btn = findSubmit();
     if (!btn) return { error: 'no-submit-button' };
     btn.click();
-    setTimeout(function() {
-      var lis = document.querySelectorAll('a');
-      for (var i = 0; i < lis.length; i++) {
-        if ((lis[i].textContent || '').trim() === '是') { lis[i].click(); return; }
-      }
-    }, 900);
-    return { ok: true };
+    return confirmDialog().then(function(c) { return { ok: true, confirmed: c }; });
   }
 
   return null;
