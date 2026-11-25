@@ -221,7 +221,129 @@ function welearnMainFunc(op, sco) {
     noJq: !$
   };
 
+  // ---- 视听说课件：从 data/<unit>/<page>.html 读取答案并回填 ----
+  // 题型：et-blank（填空，文本即答案）/ et-tof（正误，key=t|f）/ et-choice（单选，key=a|b|c|d）
+  async function fillEtCourse() {
+    var r = {
+      kind: 'et',
+      url: location.href,
+      filled: 0, choices: 0, items: 0,
+      preFilled: 0, preChoices: 0, choiceTotal: 0,
+      blanks: 0, tofs: 0, choiceN: 0
+    };
+
+    var m = location.hash.match(/#\/([^\/]+)\/([^?\/]+)/);
+    if (!m) { r.error = 'no-route'; return r; }
+
+    var base = location.pathname.replace(/[^\/]*$/, '');
+    var url = location.origin + base + 'data/' + m[1] + '/' + m[2] + '.html';
+
+    var txt;
+    try {
+      var resp = await fetch(url, { cache: 'no-store' });
+      if (!resp.ok) { r.error = 'data-' + resp.status; return r; }
+      txt = await resp.text();
+    } catch (e) { r.error = 'fetch-fail'; return r; }
+
+    var doc = new DOMParser().parseFromString(txt, 'text/html');
+    var srcBlanks = Array.prototype.map.call(doc.querySelectorAll('et-blank'), function(e) {
+      return (e.textContent || '').trim();
+    });
+    var srcTofs = Array.prototype.map.call(doc.querySelectorAll('et-tof'), function(e) {
+      return (e.getAttribute('key') || '').toLowerCase();
+    });
+    var srcChoices = Array.prototype.map.call(doc.querySelectorAll('et-choice'), function(e) {
+      return (e.getAttribute('key') || '').toLowerCase();
+    });
+
+    // 1) 填空
+    Array.prototype.forEach.call(document.querySelectorAll('et-blank'), function(b, i) {
+      var ans = srcBlanks[i];
+      if (ans == null || ans === '') return;
+      r.items++;
+      var ce = b.querySelector('[contenteditable]');
+      if (!ce) return;
+      if ((ce.textContent || '').trim() !== '') { r.preFilled++; return; }  // 已有答案不覆盖
+      try {
+        ce.focus();
+        ce.textContent = ans;
+        ce.dispatchEvent(new Event('input', { bubbles: true }));
+        r.filled++; r.blanks++;
+      } catch (e) {}
+    });
+
+    // 2) 正误判断
+    Array.prototype.forEach.call(document.querySelectorAll('et-tof'), function(t, i) {
+      var key = srcTofs[i];
+      if (!key) return;
+      r.choiceTotal++;
+      if (t.querySelector('.chosen')) { r.preChoices++; return; }
+      var spans = t.querySelectorAll('.controls span');
+      var idx = key === 't' ? 0 : 1;
+      var sp = spans[idx];
+      if (!sp) return;
+      try { sp.click(); r.choices++; r.tofs++; } catch (e) {}
+    });
+
+    // 3) 单选
+    Array.prototype.forEach.call(document.querySelectorAll('et-choice'), function(c, i) {
+      var key = srcChoices[i];
+      if (!key) return;
+      r.choiceTotal++;
+      if (c.querySelector('.chosen')) { r.preChoices++; return; }
+      var lis = c.querySelectorAll('li');
+      var idx = key.charCodeAt(0) - 97;
+      var li = lis[idx];
+      if (!li) return;
+      try { li.click(); r.choices++; r.choiceN++; } catch (e) {}
+    });
+
+    return r;
+  }
+
+  // ---- 视听说课件：提交（切到最后 tab → 调 etButton 控制器） ----
+  async function submitEtCourse() {
+    function sleep(ms) { return new Promise(function(rr) { setTimeout(rr, ms); }); }
+
+    // 提交按钮只在最后一个 tab 出现/生效
+    var heads = document.querySelectorAll('et-tab [header] li');
+    if (heads.length) {
+      try { heads[heads.length - 1].click(); } catch (e) {}
+      await sleep(700);
+    }
+
+    var btn = null;
+    var all = document.querySelectorAll('et-button');
+    for (var i = 0; i < all.length; i++) {
+      if ((all[i].getAttribute('action') || '').indexOf('item.submit') >= 0) { btn = all[i]; break; }
+    }
+    if (!btn) return { error: 'vc-no-submit-btn' };
+
+    var el = btn.querySelector('button') || btn;
+
+    // 优先走 Angular 控制器（脚本点击对 et-button 无效）
+    try {
+      var ng = window.angular;
+      if (ng) {
+        var ctrl = ng.element(el).controller('etButton');
+        if (ctrl && typeof ctrl.doAction === 'function') {
+          ctrl.doAction();
+          await sleep(1200);
+          return { ok: true, via: 'controller' };
+        }
+      }
+    } catch (e) {}
+
+    try { el.click(); await sleep(800); return { ok: true, via: 'click' }; }
+    catch (e2) { return { error: 'vc-submit-fail' }; }
+  }
+
   if (op === 'fill') {
+    // 视听说课件（AngularJS + et-* 指令）：答案在 data/<unit>/<page>.html 源文件里
+    if (document.querySelector('et-item') && !document.querySelector('[data-controltype="filling"]')) {
+      return fillEtCourse();
+    }
+
     // 填空 / 选词：写入官方答案
     Array.prototype.forEach.call(
       document.querySelectorAll('[data-controltype^="filling"]'),
@@ -310,6 +432,9 @@ function welearnMainFunc(op, sco) {
 
   // ---------- 提交（可选）：点「提交」→ 确认「是」 ----------
   if (op === 'submit') {
+    // 视听说课件：提交按钮只在最后一个 tab 生效，走 Angular 控制器调用
+    if (document.querySelector('et-item')) return submitEtCourse();
+
     function findSubmit() {
       var all = document.querySelectorAll('a, button, span, div');
       for (var i = 0; i < all.length; i++) {

@@ -461,7 +461,7 @@
 
     if (!r.ok) {
       status('未检测到题目');
-      logLine('⚠ 未检测到题目（可能是没有习题的页面，或页面还没加载完）');
+      logLine('⚠ 未检测到题目' + (r.error ? '（' + r.error + '）' : '（可能是没有习题的页面，或页面还没加载完）'));
       running = false;
       setBtnUI(false);
       return;
@@ -471,10 +471,9 @@
       logLine('ℹ 打开时答案已填好（' + (r.items ? r.preFilled + '/' + r.items + ' 空' : '选择题已选') + '）');
       status('答案已填好');
     } else {
-      logLine('✓ 已填入官方答案：' + r.filled + ' 空 / ' + r.choices + ' 道选择' +
-        (r.multiClicks ? '（含点选 ' + r.multiClicks + ' 处）' : '') +
+      logLine('✓ 已填入官方答案：' + describeFill(r) +
         (r.items ? '（共 ' + r.items + ' 空）' : ''));
-      status('已填 ' + r.filled + ' 空 / ' + r.choices + ' 道选择');
+      status('已填 ' + describeFill(r));
     }
 
     if (prefs.submit) {
@@ -603,7 +602,10 @@
       var res = await mainWorld('fill');
       if (res && res.ok) {
         var frames = (res.results || []).filter(Boolean);
-        var agg = { filled: 0, choices: 0, items: 0, preFilled: 0, preChoices: 0, choiceTotal: 0, multiClicks: 0 };
+        var agg = {
+          filled: 0, choices: 0, items: 0, preFilled: 0, preChoices: 0,
+          choiceTotal: 0, multiClicks: 0, blanks: 0, tofs: 0, choiceN: 0, kind: '', error: ''
+        };
         frames.forEach(function(f) {
           if (typeof f.filled !== 'number') return;
           agg.filled += f.filled;
@@ -613,6 +615,11 @@
           agg.preChoices += f.preChoices || 0;
           agg.choiceTotal += f.choiceTotal || 0;
           agg.multiClicks += f.multiClicks || 0;
+          agg.blanks += f.blanks || 0;
+          agg.tofs += f.tofs || 0;
+          agg.choiceN += f.choiceN || 0;
+          if (f.kind) agg.kind = f.kind;
+          if (f.error) agg.error = f.error;
         });
         last = agg;
         if (agg.filled + agg.choices + agg.items + agg.choiceTotal > 0) {
@@ -625,11 +632,25 @@
     return { ok: false, timeout: true, last: last };
   }
 
-  // 已答完判定：所有填空都有值，或所有选择题都已选
+  // 已答完判定：所有填空都有值，且所有选择题都已选
   function isAlreadyAnswered(r) {
-    if (r.items > 0) return r.preFilled >= r.items;
-    if (r.choiceTotal > 0) return r.preChoices >= r.choiceTotal;
-    return false;
+    var noItems = !(r.items > 0) && !(r.choiceTotal > 0);
+    if (noItems) return false;
+    var blankOk = r.items > 0 ? r.preFilled >= r.items : true;
+    var choiceOk = r.choiceTotal > 0 ? r.preChoices >= r.choiceTotal : true;
+    return blankOk && choiceOk;
+  }
+
+  // 把统计数据说成人话
+  function describeFill(r) {
+    var parts = [];
+    if (r.blanks) parts.push('填空 ' + r.blanks);
+    if (r.tofs) parts.push('判断 ' + r.tofs);
+    if (r.choiceN) parts.push('单选 ' + r.choiceN);
+    if (r.multiClicks) parts.push('点选 ' + r.multiClicks);
+    if (!parts.length && r.filled) parts.push(r.filled + ' 空');
+    if (!parts.length && r.choices) parts.push(r.choices + ' 处');
+    return parts.join(' · ');
   }
 
   async function resumeOnScoPage() {
@@ -660,7 +681,7 @@
 
       if (!r.ok) {
         status(idxTxt + ' 未检测到题目，跳过');
-        logLine('⚠ 未检测到题目（页面可能未加载完），跳过');
+        logLine('⚠ 未检测到题目' + (r.error ? '（' + r.error + '）' : '（页面可能未加载完）') + '，跳过');
         await skipCurrent(run, 2500);
         return;
       }
@@ -674,10 +695,9 @@
         return;
       }
 
-      logLine('✓ 已填入官方答案：' + r.filled + ' 空 / ' + r.choices + ' 道选择' +
-        (r.multiClicks ? '（含点选 ' + r.multiClicks + ' 处）' : '') +
+      logLine('✓ 已填入官方答案：' + describeFill(r) +
         (r.items ? '（共 ' + r.items + ' 空）' : ''));
-      status(idxTxt + ' 已填 ' + r.filled + ' 空 / ' + r.choices + ' 道选择');
+      status(idxTxt + ' 已填 ' + describeFill(r));
 
       run.dwellMs = pickDwellMs(
         run.minMin != null ? run.minMin : prefs.minMin,
@@ -741,9 +761,14 @@
   async function doSubmit() {
     logLine('📤 提交答案…');
     var sr = await mainWorld('submit');
+    var errMap = {
+      'vc-no-submit-btn': '未找到视听说课件的提交按钮',
+      'vc-submit-fail': '视听说课件提交调用失败',
+      'no-submit-button': '未找到提交按钮'
+    };
     var ok = !!(sr && sr.ok !== false && !sr.error);
     logLine(ok ? '✓ 已提交（记录为首次答题正确率）'
-      : ('✗ 提交失败：' + ((sr && sr.error) || '未找到提交按钮')));
+      : ('✗ 提交失败：' + (errMap[sr && sr.error] || (sr && sr.error) || '未知错误')));
     return ok;
   }
 
