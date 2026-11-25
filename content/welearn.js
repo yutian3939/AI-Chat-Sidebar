@@ -544,7 +544,7 @@
       var res = await mainWorld('fill');
       if (res && res.ok) {
         var frames = (res.results || []).filter(Boolean);
-        var agg = { filled: 0, choices: 0, items: 0, preFilled: 0, preChoices: 0, choiceTotal: 0 };
+        var agg = { filled: 0, choices: 0, items: 0, preFilled: 0, preChoices: 0, choiceTotal: 0, multiClicks: 0 };
         frames.forEach(function(f) {
           if (typeof f.filled !== 'number') return;
           agg.filled += f.filled;
@@ -553,6 +553,7 @@
           agg.preFilled += f.preFilled || 0;
           agg.preChoices += f.preChoices || 0;
           agg.choiceTotal += f.choiceTotal || 0;
+          agg.multiClicks += f.multiClicks || 0;
         });
         last = agg;
         if (agg.filled + agg.choices + agg.items + agg.choiceTotal > 0) {
@@ -615,6 +616,7 @@
       }
 
       logLine('✓ 已填入官方答案：' + r.filled + ' 空 / ' + r.choices + ' 道选择' +
+        (r.multiClicks ? '（含点选 ' + r.multiClicks + ' 处）' : '') +
         (r.items ? '（共 ' + r.items + ' 空）' : ''));
       status(idxTxt + ' 已填 ' + r.filled + ' 空 / ' + r.choices + ' 道选择');
 

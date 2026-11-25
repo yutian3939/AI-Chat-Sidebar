@@ -285,6 +285,26 @@ function welearnMainFunc(op, sco) {
         } catch (e) {}
       }
     );
+
+    // 多选（点选词/名词等）：逐个点选正确项，已选中的跳过以免点掉
+    Array.prototype.forEach.call(
+      document.querySelectorAll('[data-controltype="multichoice"]'),
+      function(g) {
+        out.choiceTotal++;
+        var sols = g.querySelectorAll('li[data-solution]');
+        var chosen = g.querySelectorAll('li[data-choiced]').length;
+        if (sols.length > 0 && chosen >= sols.length) out.preChoices++;
+
+        Array.prototype.forEach.call(sols, function(li) {
+          if (li.hasAttribute && li.hasAttribute('data-choiced')) return;
+          try {
+            if ($) $(li).trigger('click'); else li.click();
+            out.choices++;
+            out.multiClicks = (out.multiClicks || 0) + 1;
+          } catch (e) {}
+        });
+      }
+    );
     return out;
   }
 
