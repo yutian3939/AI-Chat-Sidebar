@@ -330,13 +330,18 @@
     if (C && C.$welearnStatus) C.$welearnStatus.textContent = text || '';
   }
 
+  function idleBtnLabel() {
+    var icon = window.AIChatICONS ? window.AIChatICONS.AUTO : '▶';
+    return icon + (isScoPage() ? '自动答题' : '自动练习');
+  }
+
   function setBtnUI(on, progressPct) {
     var C = ctx();
     if (!C) return;
     if (C.$welearnBtnText) {
       C.$welearnBtnText.innerHTML = on
-        ? '⏹ 停止自动练习'
-        : ((window.AIChatICONS ? window.AIChatICONS.AUTO : '▶') + '自动练习');
+        ? (isScoPage() ? '⏹ 停止答题' : '⏹ 停止自动练习')
+        : idleBtnLabel();
     }
     if (C.$welearnBtnFill) C.$welearnBtnFill.style.width = (on ? (progressPct || 0) : 0) + '%';
   }
@@ -417,6 +422,10 @@
   function onButtonClick() {
     if (running) { stop(); return; }
     if (!isAnyWeLearnPage()) { status('请在 WE Learn 任务页使用'); return; }
+
+    // 练习页：只完成当前这一个练习
+    if (isScoPage()) { startSingle(); return; }
+
     if (!isTaskPage()) { status('请先回到「学习任务」列表页再启动'); return; }
 
     var rows = parseTaskRows();
@@ -430,6 +439,56 @@
 
     showPicker(queue);
     status('请选择从哪个练习开始（共 ' + queue.length + ' 个）');
+  }
+
+  // 练习页：直接完成当前这一个练习（不排队、不停留、不跳转）
+  async function startSingle() {
+    await loadPrefs();
+    var sco = currentScoId();
+
+    running = true;
+    setBtnUI(true, 0);
+    logClear();
+    logLine('开始时间 ' + new Date().toLocaleTimeString());
+    logLine('自动答题：只处理当前这一个练习（' + (sco || '当前页') + '）');
+    ensureSidebarOpen();
+    renderLog();
+    startLogWatch();
+
+    status('正在读取题目…');
+    var r = await fillUntilOk(60000);
+    if (r.stopped) return;
+
+    if (!r.ok) {
+      status('未检测到题目');
+      logLine('⚠ 未检测到题目（可能是没有习题的页面，或页面还没加载完）');
+      running = false;
+      setBtnUI(false);
+      return;
+    }
+
+    if (isAlreadyAnswered(r)) {
+      logLine('ℹ 打开时答案已填好（' + (r.items ? r.preFilled + '/' + r.items + ' 空' : '选择题已选') + '）');
+      status('答案已填好');
+    } else {
+      logLine('✓ 已填入官方答案：' + r.filled + ' 空 / ' + r.choices + ' 道选择' +
+        (r.multiClicks ? '（含点选 ' + r.multiClicks + ' 处）' : '') +
+        (r.items ? '（共 ' + r.items + ' 空）' : ''));
+      status('已填 ' + r.filled + ' 空 / ' + r.choices + ' 道选择');
+    }
+
+    if (prefs.submit) {
+      await sleep(800);
+      await doSubmit();
+      await sleep(2500);
+    } else {
+      logLine('未开启自动提交，答案已留在页面');
+    }
+
+    logLine('✅ 本练习处理完成');
+    status('本练习完成 ✓');
+    running = false;
+    setBtnUI(false);
   }
 
   async function startFrom(queue, startIdx) {
@@ -679,7 +738,7 @@
   }
 
   // 提交：点「提交」并确认「是」
-  async function doSubmit(run) {
+  async function doSubmit() {
     logLine('📤 提交答案…');
     var sr = await mainWorld('submit');
     var ok = !!(sr && sr.ok !== false && !sr.error);
@@ -693,7 +752,7 @@
     // 自动提交：等停留结束后再提交（不停留时即为填完即交）
     if (run.submit) {
       await sleep(500);
-      await doSubmit(run);
+      await doSubmit();
       await sleep(2500);
     }
     run.phase = 'next';
@@ -761,15 +820,33 @@
       C.$btnWelearn.addEventListener('click', onButtonClick);
     }
     setTimeout(bindPrefInputs, 800);
+    if (isAnyWeLearnPage()) {
+      if (ctx() && ctx().$btnWelearn) {
+        ctx().$btnWelearn.title = isScoPage()
+          ? 'WE Learn：直接完成当前这一个练习（按官方答案填写）'
+          : 'WE Learn：逐个完成任务列表里的练习（按官方答案填写，可设停留）';
+      }
+      setBtnUI(false);
+    }
     boot();
   }
 
   function refreshVisibility() {
     var C = ctx();
     if (!C || !C.$welearnRow) return;
-    C.$welearnRow.style.display = isAnyWeLearnPage() ? 'flex' : 'none';
-    if (!isAnyWeLearnPage()) hidePicker();
-    if (isAnyWeLearnPage() && !running) {
+    var show = isAnyWeLearnPage();
+    C.$welearnRow.style.display = show ? 'flex' : 'none';
+
+    // 文案随页面切换：练习页 = 自动答题（单个），任务页 = 自动练习（批量）
+    if (C.$btnWelearn) {
+      C.$btnWelearn.title = isScoPage()
+        ? 'WE Learn：直接完成当前这一个练习（按官方答案填写）'
+        : 'WE Learn：逐个完成任务列表里的练习（按官方答案填写，可设停留）';
+    }
+    if (!running) setBtnUI(false);
+
+    if (!show) hidePicker();
+    if (show && !running) {
       getRun().then(function(run) {
         if (run && run.active) {
           running = true;
@@ -783,6 +860,8 @@
     bindEvents: bindEvents,
     refreshVisibility: refreshVisibility,
     isWeLearn: isWeLearn,
+    isTaskPage: isTaskPage,
+    isScoPage: isScoPage,
     isAnyWeLearnPage: isAnyWeLearnPage,
     parseTaskRows: parseTaskRows,
     isAlreadyAnswered: isAlreadyAnswered,
